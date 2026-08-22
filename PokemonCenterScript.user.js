@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.2
 // @description  Advanced script for pokemoncenter.com with UI Console, Humanized Account Checkout & Payment Autofill
-// @author       You
+// @author       Pythonic Shariful
 // @match        https://www.pokemoncenter.com/*
 // @match        https://flex.cybersource.com/*
 // @grant        GM_setValue
@@ -580,19 +580,22 @@
             uiContainer.style.position = 'fixed';
             uiContainer.style.bottom = '20px';
             uiContainer.style.right = '20px';
-            uiContainer.style.backgroundColor = 'rgba(15, 20, 25, 0.95)';
-            uiContainer.style.color = '#fff';
-            uiContainer.style.padding = '15px';
-            uiContainer.style.borderRadius = '10px';
+            uiContainer.style.background = 'rgba(15, 23, 42, 0.75)';
+            uiContainer.style.backdropFilter = 'blur(12px)';
+            uiContainer.style.webkitBackdropFilter = 'blur(12px)';
+            uiContainer.style.color = '#f8fafc';
+            uiContainer.style.padding = '20px';
+            uiContainer.style.borderRadius = '16px';
             uiContainer.style.zIndex = '999999';
-            uiContainer.style.fontFamily = '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
+            uiContainer.style.fontFamily = '"Inter", system-ui, -apple-system, sans-serif';
             uiContainer.style.fontSize = '14px';
-            uiContainer.style.boxShadow = '0 8px 24px rgba(0,0,0,0.8)';
+            uiContainer.style.boxShadow = '0 20px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)';
             uiContainer.style.pointerEvents = 'auto'; 
-            uiContainer.style.width = '350px';
-            uiContainer.style.border = '1px solid #333';
+            uiContainer.style.width = '380px';
+            uiContainer.style.border = '1px solid rgba(255,255,255,0.1)';
             uiContainer.style.maxHeight = '90vh';
             uiContainer.style.overflowY = 'auto';
+            uiContainer.style.transition = 'all 0.3s ease';
             
             document.body.appendChild(uiContainer);
         }
@@ -601,59 +604,78 @@
             <div id="botPageType" style="margin-bottom: 12px; font-size: 15px; font-weight: bold; color: #fff;">🌐 Initializing...</div>
             
             <!-- Controls -->
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
-                <label style="font-weight: bold; color: #ccc;">Target Qty:</label>
-                <input type="number" id="botTargetQty" value="1" min="1" max="99" style="width: 60px; padding: 4px; background: #222; color: #fff; border-radius: 4px; border: 1px solid #555;" />
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 16px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; flex-wrap: wrap; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="flex: 1; min-width: 80px;">
+                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Target Qty</label>
+                    <input type="number" id="botTargetQty" value="1" min="1" max="99" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s;" />
+                </div>
+                <div style="flex: 1; min-width: 80px;">
+                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Min Delay (s)</label>
+                    <input type="number" id="botMinDelay" value="5" min="1" max="300" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s;" />
+                </div>
+                <div style="flex: 1; min-width: 80px;">
+                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Max Delay (s)</label>
+                    <input type="number" id="botMaxDelay" value="15" min="1" max="300" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s;" />
+                </div>
             </div>
             
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px;">
-                <button id="botStartBtn" style="flex: 1; padding: 8px; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; transition: 0.2s;">▶ Start</button>
-                <button id="botStopBtn" style="flex: 1; padding: 8px; cursor: pointer; background: #dc3545; color: white; border: none; border-radius: 4px; font-weight: bold; transition: 0.2s;">⏹ Stop</button>
+            <!-- Scheduling -->
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 16px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="flex: 1;">
+                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Schedule Start (Local Time)</label>
+                    <input type="datetime-local" id="botScheduleTime" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s; color-scheme: dark;" />
+                </div>
+                <button id="botScheduleBtn" style="padding: 10px 16px; cursor: pointer; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 13px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3); align-self: flex-end; transition: transform 0.1s, filter 0.2s;">⏳ Set</button>
+            </div>
+            
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                <button id="botStartBtn" style="flex: 1; padding: 10px; cursor: pointer; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); transition: transform 0.1s, filter 0.2s;">▶ START</button>
+                <button id="botStopBtn" style="flex: 1; padding: 10px; cursor: pointer; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: transform 0.1s, filter 0.2s;">⏹ STOP</button>
             </div>
 
             <!-- Shipping Profile Settings -->
-            <details style="margin-bottom: 10px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
-                <summary style="cursor: pointer; font-weight: bold; color: #ffcc00; outline: none;">📦 Shipping Profile</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
-                    <input type="text" id="p_fn" placeholder="First Name" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
-                    <input type="text" id="p_ln" placeholder="Last Name" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
-                    <input type="text" id="p_addr" placeholder="Street Address" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
-                    <input type="text" id="p_apt" placeholder="Apt/Suite (Optional)" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
-                    <input type="text" id="p_zip" placeholder="Zip Code" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
-                    <input type="text" id="p_phone" placeholder="Phone Number" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
-                    <input type="email" id="p_email" placeholder="Email" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
+            <details style="margin-bottom: 12px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                <summary style="cursor: pointer; font-weight: 600; color: #fbbf24; outline: none; user-select: none;">📦 Shipping Profile</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px;">
+                    <input type="text" id="p_fn" placeholder="First Name" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
+                    <input type="text" id="p_ln" placeholder="Last Name" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
+                    <input type="text" id="p_addr" placeholder="Street Address" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
+                    <input type="text" id="p_apt" placeholder="Apt/Suite (Optional)" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
+                    <input type="text" id="p_zip" placeholder="Zip Code" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
+                    <input type="text" id="p_phone" placeholder="Phone Number" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
+                    <input type="email" id="p_email" placeholder="Email" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
                 </div>
             </details>
 
             <!-- Payment Details Settings -->
-            <details open style="margin-bottom: 12px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
-                <summary style="cursor: pointer; font-weight: bold; color: #00d2ff; outline: none;">💳 Payment Details</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+            <details open style="margin-bottom: 16px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                <summary style="cursor: pointer; font-weight: 600; color: #38bdf8; outline: none; user-select: none;">💳 Payment Details</summary>
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
                     <div>
-                        <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">Card Number:</div>
-                        <input type="text" id="p_card_num" placeholder="16-digit Card Number" style="width: 100%; box-sizing: border-box; padding: 5px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
+                        <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">CARD NUMBER:</div>
+                        <input type="text" id="p_card_num" placeholder="16-digit Card Number" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
                     </div>
-                    <div style="display: flex; gap: 6px;">
+                    <div style="display: flex; gap: 8px;">
                         <div style="flex: 1;">
-                            <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">Month:</div>
-                            <input type="text" id="p_exp_month" placeholder="MM (08)" maxlength="2" style="width: 100%; box-sizing: border-box; padding: 5px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
+                            <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">MONTH:</div>
+                            <input type="text" id="p_exp_month" placeholder="MM (08)" maxlength="2" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
                         </div>
                         <div style="flex: 1;">
-                            <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">Year:</div>
-                            <input type="text" id="p_exp_year" placeholder="YYYY (2026)" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 5px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
+                            <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">YEAR:</div>
+                            <input type="text" id="p_exp_year" placeholder="YYYY (2026)" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
                         </div>
                         <div style="flex: 1;">
-                            <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">CVV2 / CVC:</div>
-                            <input type="text" id="p_cvv" placeholder="CVV2" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 5px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
+                            <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">CVV2:</div>
+                            <input type="text" id="p_cvv" placeholder="CVV2" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
                         </div>
                     </div>
-                    <button id="botSaveSettingsBtn" style="margin-top: 6px; padding: 7px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">💾 Save Profile & Card</button>
+                    <button id="botSaveSettingsBtn" style="margin-top: 10px; padding: 10px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); transition: transform 0.1s, filter 0.2s;">💾 Save Profile & Card</button>
                 </div>
             </details>
             
             <!-- Terminal Log -->
-            <div style="font-size: 11px; font-weight: bold; color: #888; margin-bottom: 5px; letter-spacing: 1px;">TERMINAL LOG</div>
-            <div id="botConsole" style="background: #000; border-radius: 6px; padding: 10px; height: 160px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 12px; border: 1px solid #333; box-shadow: inset 0 2px 5px rgba(0,0,0,0.5);">
+            <div style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 6px; letter-spacing: 1px; text-transform: uppercase;">System Activity</div>
+            <div id="botConsole" style="background: rgba(0,0,0,0.5); border-radius: 8px; padding: 12px; height: 180px; overflow-y: auto; font-family: 'Fira Code', 'Consolas', monospace; font-size: 12px; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);">
             </div>
         `;
 
@@ -663,6 +685,8 @@
         const startBtn = document.getElementById('botStartBtn');
         const stopBtn = document.getElementById('botStopBtn');
         const qtyInput = document.getElementById('botTargetQty');
+        const minDelayInput = document.getElementById('botMinDelay');
+        const maxDelayInput = document.getElementById('botMaxDelay');
 
         // Profile Elements
         const p_fn = document.getElementById('p_fn');
@@ -683,6 +707,8 @@
 
         // Load Settings
         if (qtyInput) qtyInput.value = localStorage.getItem('pc_bot_target_qty') || '1';
+        if (minDelayInput) minDelayInput.value = localStorage.getItem('pc_bot_min_delay') || '5';
+        if (maxDelayInput) maxDelayInput.value = localStorage.getItem('pc_bot_max_delay') || '15';
         if (p_fn) p_fn.value = localStorage.getItem('pc_bot_fn') || '';
         if (p_ln) p_ln.value = localStorage.getItem('pc_bot_ln') || '';
         if (p_addr) p_addr.value = localStorage.getItem('pc_bot_addr') || '';
@@ -699,6 +725,18 @@
         if (qtyInput) {
             qtyInput.addEventListener('change', (e) => {
                 localStorage.setItem('pc_bot_target_qty', e.target.value);
+            });
+        }
+        
+        if (minDelayInput) {
+            minDelayInput.addEventListener('change', (e) => {
+                localStorage.setItem('pc_bot_min_delay', e.target.value);
+            });
+        }
+
+        if (maxDelayInput) {
+            maxDelayInput.addEventListener('change', (e) => {
+                localStorage.setItem('pc_bot_max_delay', e.target.value);
             });
         }
 
@@ -757,6 +795,66 @@
                 }
             });
         }
+        
+        const scheduleBtn = document.getElementById('botScheduleBtn');
+        const scheduleTimeInput = document.getElementById('botScheduleTime');
+        
+        if (scheduleBtn && scheduleTimeInput) {
+            scheduleBtn.addEventListener('click', () => {
+                if (window.botScheduledInterval) {
+                    // Cancel schedule if it's already running
+                    clearInterval(window.botScheduledInterval);
+                    window.botScheduledInterval = null;
+                    scheduleBtn.innerText = "⏳ Set";
+                    logToConsole("🛑 Schedule cancelled.", "warning");
+                    return;
+                }
+
+                const targetTime = new Date(scheduleTimeInput.value).getTime();
+                if (!targetTime || isNaN(targetTime)) {
+                    logToConsole("⚠️ Invalid schedule time.", "warning");
+                    return;
+                }
+                
+                if (targetTime <= Date.now()) {
+                    logToConsole("⚠️ Scheduled time is in the past.", "warning");
+                    return;
+                }
+                
+                if (isBotRunning) {
+                    isBotRunning = false;
+                    localStorage.setItem('pc_bot_running', 'false');
+                    botActionInProgress = false;
+                    updateButtons();
+                    logToConsole('⏸️ Bot paused until scheduled time.', 'warning');
+                }
+
+                logToConsole(`⏳ Bot scheduled to start at: ${new Date(targetTime).toLocaleTimeString()}`, "info");
+                
+                window.botScheduledInterval = setInterval(() => {
+                    const remainingMs = targetTime - Date.now();
+                    
+                    if (remainingMs <= 0) {
+                        clearInterval(window.botScheduledInterval);
+                        window.botScheduledInterval = null;
+                        scheduleBtn.innerText = "⏳ Set";
+                        
+                        if (!isBotRunning) {
+                            isBotRunning = true;
+                            localStorage.setItem('pc_bot_running', 'true');
+                            logToConsole('🚀 Scheduled start triggered!', 'success');
+                            updateButtons();
+                        }
+                    } else {
+                        // Update button with live countdown
+                        const h = Math.floor(remainingMs / 3600000);
+                        const m = Math.floor((remainingMs % 3600000) / 60000).toString().padStart(2, '0');
+                        const s = Math.floor((remainingMs % 60000) / 1000).toString().padStart(2, '0');
+                        scheduleBtn.innerText = `🛑 Cancel (${h}:${m}:${s})`;
+                    }
+                }, 1000);
+            });
+        }
     }
 
     function updateButtons() {
@@ -782,6 +880,8 @@
     }
 
     // --- Product Page Logic ---
+    let nextRestockCheckTime = 0;
+
     async function executeProductPageBot() {
         if (!isBotRunning || botActionInProgress) return;
         botActionInProgress = true;
@@ -795,18 +895,71 @@
         let addToCartBtn = document.querySelector('button.add-to-cart-button--PZmQF');
         if (!addToCartBtn) {
             const btns = Array.from(document.querySelectorAll('button'));
-            addToCartBtn = btns.find(b => b.innerText && b.innerText.includes('Add to Cart'));
+            addToCartBtn = btns.find(b => b.innerText && (b.innerText.includes('Add to Cart') || b.innerText.includes('Unavailable')));
         }
+        
+        const isUnavailable = !addToCartBtn || 
+                              addToCartBtn.disabled || 
+                              addToCartBtn.classList.contains('disabled--vkECP') || 
+                              (addToCartBtn.innerText && addToCartBtn.innerText.includes('Unavailable'));
 
-        if (!input || (!increaseBtn && !decreaseBtn)) {
-            logToConsole("Waiting for Quantity controls...", "warning");
-            await sleep(1500);
+        if (isUnavailable) {
+            // It's out of stock or loading. Do a background fetch to check for restock if enough time has passed.
+            const now = Date.now();
+            if (now > nextRestockCheckTime) {
+                const minDelaySecs = parseFloat(document.getElementById('botMinDelay')?.value || "5");
+                const maxDelaySecs = parseFloat(document.getElementById('botMaxDelay')?.value || "15");
+                const minMs = minDelaySecs * 1000;
+                const maxMs = Math.max(minMs + 1000, maxDelaySecs * 1000);
+                const waitTimeMs = minMs + Math.random() * (maxMs - minMs);
+                
+                nextRestockCheckTime = now + waitTimeMs;
+                logToConsole(`Checking background API for restock... (Next check in ~${(waitTimeMs/1000).toFixed(1)}s)`, "info");
+                
+                try {
+                    const res = await fetch(window.location.href, { cache: 'no-store' });
+                    const html = await res.text();
+                    
+                    // Parse the HTML into a temporary DOM to robustly check the button state
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    
+                    let fetchedBtn = doc.querySelector('button.add-to-cart-button--PZmQF');
+                    if (!fetchedBtn) {
+                        const fetchedBtns = Array.from(doc.querySelectorAll('button'));
+                        fetchedBtn = fetchedBtns.find(b => b.innerText && (b.innerText.includes('Add to Cart') || b.innerText.includes('Unavailable')));
+                    }
+                    
+                    let isNowAvailable = false;
+                    if (fetchedBtn) {
+                        const isBtnUnavailable = fetchedBtn.disabled || 
+                                                 fetchedBtn.classList.contains('disabled--vkECP') || 
+                                                 (fetchedBtn.innerText && fetchedBtn.innerText.includes('Unavailable'));
+                        if (!isBtnUnavailable && fetchedBtn.innerText && fetchedBtn.innerText.includes('Add to Cart')) {
+                            isNowAvailable = true;
+                        }
+                    }
+
+                    if (isNowAvailable) {
+                        logToConsole("🚨 RESTOCK DETECTED in background! Refreshing page...", "success");
+                        window.location.reload();
+                        return; // Stop execution, page is reloading
+                    } else {
+                        logToConsole("Still out of stock in background.", "warning");
+                    }
+                } catch (e) {
+                    logToConsole("Background check failed: " + e.message, "error");
+                }
+            } else {
+                logToConsole("Waiting for product availability...", "warning");
+                await sleep(1500);
+            }
             botActionInProgress = false;
             return;
         }
 
-        if (!addToCartBtn) {
-            logToConsole("Waiting for 'Add to Cart' button...", "warning");
+        if (!input || (!increaseBtn && !decreaseBtn)) {
+            logToConsole("Waiting for Quantity controls...", "warning");
             await sleep(1500);
             botActionInProgress = false;
             return;
