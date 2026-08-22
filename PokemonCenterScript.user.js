@@ -1,66 +1,553 @@
 // ==UserScript==
 // @name         Pokemon Center Script
 // @namespace    http://tampermonkey.net/
-// @version      0.8
-// @description  Advanced script for pokemoncenter.com with UI Console and Checkout Autofiill
+// @version      1.2
+// @description  Advanced script for pokemoncenter.com with UI Console, Humanized Account Checkout & Payment Autofill
 // @author       You
 // @match        https://www.pokemoncenter.com/*
-// @grant        none
+// @match        https://flex.cybersource.com/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addValueChangeListener
 // ==/UserScript==
 
 (function() {
     'use strict';
 
+    // =========================================================================
+    // 0. ADVANCED HUMANIZATION UTILITIES & BIOMETRIC SIMULATION
+    // =========================================================================
+
+    // Helper to simulate sleep/delays
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    // Gaussian (Normal) distribution generator via Box-Muller transform
+    function gaussianRandom(mean, stdDev, min = null, max = null) {
+        let u = 0, v = 0;
+        while (u === 0) u = Math.random();
+        while (v === 0) v = Math.random();
+        let num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        let result = mean + num * stdDev;
+        if (min !== null && result < min) result = min;
+        if (max !== null && result > max) result = max;
+        return result;
+    }
+
+    // Get realistic click coordinates inside an element (avoiding exact edge/center)
+    function getRandomElementCoordinates(element) {
+        const rect = element.getBoundingClientRect();
+        const offsetX = rect.width * (0.25 + Math.random() * 0.5);
+        const offsetY = rect.height * (0.25 + Math.random() * 0.5);
+        
+        const clientX = Math.round(rect.left + offsetX);
+        const clientY = Math.round(rect.top + offsetY);
+        const pageX = clientX + window.scrollX;
+        const pageY = clientY + window.scrollY;
+        const screenX = clientX + (window.screenX || 0);
+        const screenY = clientY + (window.screenY || 0);
+
+        return { clientX, clientY, pageX, pageY, screenX, screenY, rect };
+    }
+
+    // Simulate realistic multi-event human click (PointerEvent + MouseEvent + Focus)
+    async function simulateHumanClick(element) {
+        if (!element) return;
+
+        const rect = element.getBoundingClientRect();
+        const isInViewport = (
+            rect.top >= 0 &&
+            rect.left >= 0 &&
+            rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+            rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+        );
+
+        if (!isInViewport) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+            await sleep(gaussianRandom(280, 40, 200, 420));
+        }
+
+        const coords = getRandomElementCoordinates(element);
+        const eventInit = {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            clientX: coords.clientX,
+            clientY: coords.clientY,
+            screenX: coords.screenX,
+            screenY: coords.screenY,
+            pageX: coords.pageX,
+            pageY: coords.pageY,
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true,
+            pressure: 0.5,
+            width: 1,
+            height: 1,
+            sourceCapabilities: window.InputDeviceCapabilities ? new InputDeviceCapabilities({ firesTouchEvents: false }) : null
+        };
+
+        // Approach & Hover
+        element.dispatchEvent(new PointerEvent('pointerover', eventInit));
+        element.dispatchEvent(new PointerEvent('pointerenter', { ...eventInit, bubbles: false }));
+        element.dispatchEvent(new MouseEvent('mouseover', eventInit));
+        element.dispatchEvent(new MouseEvent('mouseenter', { ...eventInit, bubbles: false }));
+        
+        // Micro-jitter movements
+        for (let i = 0; i < 2; i++) {
+            const jitterX = coords.clientX + (Math.random() * 4 - 2);
+            const jitterY = coords.clientY + (Math.random() * 4 - 2);
+            element.dispatchEvent(new PointerEvent('pointermove', { ...eventInit, clientX: jitterX, clientY: jitterY }));
+            element.dispatchEvent(new MouseEvent('mousemove', { ...eventInit, clientX: jitterX, clientY: jitterY }));
+            await sleep(gaussianRandom(20, 5, 10, 35));
+        }
+
+        // Press Down
+        await sleep(gaussianRandom(35, 8, 15, 65));
+        element.dispatchEvent(new PointerEvent('pointerdown', { ...eventInit, buttons: 1 }));
+        element.dispatchEvent(new MouseEvent('mousedown', { ...eventInit, buttons: 1 }));
+        
+        if (typeof element.focus === 'function') {
+            element.focus();
+        }
+
+        // Hold Duration
+        await sleep(gaussianRandom(75, 15, 45, 130));
+
+        // Release
+        element.dispatchEvent(new PointerEvent('pointerup', { ...eventInit, buttons: 0 }));
+        element.dispatchEvent(new MouseEvent('mouseup', { ...eventInit, buttons: 0 }));
+        element.dispatchEvent(new MouseEvent('click', { ...eventInit, buttons: 0 }));
+
+        await sleep(gaussianRandom(80, 20, 40, 160));
+    }
+
+    // Simulate realistic human typing with keydown/keyup hold duration & flight time
+    async function simulateHumanType(element, text) {
+        if (!element || text === undefined || text === null) return;
+        text = String(text);
+
+        await simulateHumanClick(element);
+        await sleep(gaussianRandom(150, 30, 80, 260));
+        
+        // Clear existing value
+        element.select();
+        try {
+            document.execCommand('delete');
+        } catch (e) {}
+
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+        if (element.value !== "") {
+            if (nativeInputValueSetter) {
+                if (element._valueTracker) element._valueTracker.setValue('__val__' + Math.random());
+                nativeInputValueSetter.call(element, "");
+            } else {
+                element.value = "";
+            }
+            element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        }
+
+        await sleep(gaussianRandom(120, 25, 60, 200));
+
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const keyCode = char.charCodeAt(0);
+            const sc = window.InputDeviceCapabilities ? new InputDeviceCapabilities({ firesTouchEvents: false }) : null;
+
+            const keyEventInit = {
+                key: char,
+                code: isNaN(char) ? `Key${char.toUpperCase()}` : `Digit${char}`,
+                keyCode: keyCode,
+                which: keyCode,
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+                sourceCapabilities: sc
+            };
+
+            element.dispatchEvent(new KeyboardEvent('keydown', keyEventInit));
+            element.dispatchEvent(new KeyboardEvent('keypress', keyEventInit));
+
+            let inserted = false;
+            try {
+                inserted = document.execCommand('insertText', false, char);
+            } catch (e) {}
+
+            if (!inserted) {
+                if (element._valueTracker) element._valueTracker.setValue('__val__' + Math.random());
+                if (nativeInputValueSetter) {
+                    nativeInputValueSetter.call(element, element.value + char);
+                } else {
+                    element.value += char;
+                }
+                element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: char, inputType: 'insertText' }));
+                element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+            }
+
+            // Human Key Press Hold duration (typically 45-85ms)
+            await sleep(gaussianRandom(52, 10, 32, 95));
+
+            element.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
+
+            // Inter-key flight latency
+            let flightTime = gaussianRandom(85, 18, 50, 160);
+            if (char === ' ' || char === '@' || char === '.') {
+                flightTime += gaussianRandom(100, 25, 50, 180);
+            } else if (Math.random() < 0.1) {
+                flightTime += gaussianRandom(70, 20, 30, 130);
+            }
+            await sleep(flightTime);
+        }
+
+        await sleep(gaussianRandom(160, 30, 90, 280));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.blur();
+        element.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        await sleep(gaussianRandom(180, 35, 100, 300));
+    }
+
+    // Simulate complete human dropdown selection for React & native selects
+    async function simulateHumanSelect(selectElement, targetValue) {
+        if (!selectElement || targetValue === undefined || targetValue === null) return;
+        targetValue = String(targetValue).trim();
+
+        // 1. Ensure element is visible in viewport
+        const rect = selectElement.getBoundingClientRect();
+        const isInViewport = (
+            rect.top >= 0 &&
+            rect.left >= 0 &&
+            rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+            rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+        );
+
+        if (!isInViewport) {
+            selectElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+            await sleep(gaussianRandom(260, 35, 180, 380));
+        }
+
+        // 2. Focus and click the select element to simulate opening dropdown
+        await simulateHumanClick(selectElement);
+        await sleep(gaussianRandom(200, 30, 140, 300));
+
+        // 3. Locate matching option
+        const options = Array.from(selectElement.options || []);
+        const targetValPadded = targetValue.padStart(2, '0');
+        const targetValUnpadded = targetValue.replace(/^0+/, '') || '0';
+
+        const targetOption = options.find(o => 
+            o.value === targetValue || 
+            o.value === targetValPadded ||
+            o.value === targetValUnpadded ||
+            o.text.trim().toLowerCase() === targetValue.toLowerCase() ||
+            o.text.trim().toLowerCase() === targetValPadded.toLowerCase() ||
+            o.text.trim().toLowerCase().includes(targetValue.toLowerCase())
+        );
+
+        const finalValue = targetOption ? targetOption.value : targetValue;
+
+        if (targetOption) {
+            options.forEach(o => o.selected = false);
+            targetOption.selected = true;
+            selectElement.selectedIndex = targetOption.index;
+            
+            try {
+                const sc = window.InputDeviceCapabilities ? new InputDeviceCapabilities({ firesTouchEvents: false }) : null;
+                targetOption.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, sourceCapabilities: sc }));
+                targetOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, sourceCapabilities: sc }));
+                targetOption.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, sourceCapabilities: sc }));
+                targetOption.dispatchEvent(new MouseEvent('click', { bubbles: true, sourceCapabilities: sc }));
+            } catch(e) {}
+        }
+
+        // 4. Trigger React value setter
+        const nativeSelectValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")?.set;
+        
+        // Bypass React's event tracker if it exists
+        if (selectElement._valueTracker) {
+            selectElement._valueTracker.setValue('__old_val__' + Math.random());
+        }
+
+        if (nativeSelectValueSetter) {
+            nativeSelectValueSetter.call(selectElement, finalValue);
+        } else {
+            selectElement.value = finalValue;
+        }
+
+        // 5. Dispatch input and change events
+        selectElement.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        selectElement.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+        // Simulate hitting Enter to confirm selection
+        const keyEventInit = { 
+            key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true,
+            sourceCapabilities: window.InputDeviceCapabilities ? new InputDeviceCapabilities({ firesTouchEvents: false }) : null
+        };
+        selectElement.dispatchEvent(new KeyboardEvent('keydown', keyEventInit));
+        selectElement.dispatchEvent(new KeyboardEvent('keypress', keyEventInit));
+        selectElement.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
+
+        if (selectElement.form) {
+            selectElement.form.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        selectElement.blur();
+        selectElement.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        await sleep(gaussianRandom(220, 40, 140, 360));
+    }
+
+    // =========================================================================
+    // 1. CYBERSOURCE MICROFORM IFRAME HANDLER
+    // =========================================================================
+    if (window.location.hostname.includes('cybersource.com')) {
+        let pendingCard = '';
+        let pendingCVV = '';
+        let isTyping = false;
+
+        async function tryFillIframeInput() {
+            const input = document.querySelector('input');
+            if (!input) return;
+            if (isTyping) {
+                console.log("[CS Iframe] Already typing, ignoring fill request.");
+                return;
+            }
+
+            const hash = decodeURIComponent(window.location.hash || '').toLowerCase();
+            const href = decodeURIComponent(window.location.href || '').toLowerCase();
+            const placeholder = (input.placeholder || '').toLowerCase();
+            const name = (input.name || '').toLowerCase();
+            const id = (input.id || '').toLowerCase();
+            
+            const isCVV = hash.includes('securitycode') || 
+                          hash.includes('cvv') ||
+                          href.includes('securitycode') || 
+                          href.includes('cvv') ||
+                          placeholder.includes('*') || 
+                          placeholder.includes('cvv') || 
+                          placeholder.includes('security') ||
+                          name.includes('cvv') || 
+                          name.includes('security') || 
+                          id.includes('cvv') ||
+                          id.includes('security');
+
+            const isCardNumber = !isCVV && (
+                                 hash.includes('card') || 
+                                 hash.includes('number') || 
+                                 href.includes('card') || 
+                                 href.includes('number') ||
+                                 placeholder.includes('card') || 
+                                 placeholder.includes('number') || 
+                                 name.includes('card') || 
+                                 name.includes('number') || 
+                                 id.includes('card') ||
+                                 id.includes('number') ||
+                                 true
+            );
+
+            let valToType = '';
+            let fieldLabel = '';
+            if (isCVV) {
+                fieldLabel = 'CVV';
+                if (typeof GM_getValue !== 'undefined') {
+                    try { valToType = GM_getValue('pc_bot_cvv', '') || pendingCVV; } catch(e) { valToType = pendingCVV; }
+                } else {
+                    valToType = pendingCVV;
+                }
+            } else if (isCardNumber) {
+                fieldLabel = 'Card Number';
+                if (typeof GM_getValue !== 'undefined') {
+                    try { valToType = GM_getValue('pc_bot_card_num', '') || pendingCard; } catch(e) { valToType = pendingCard; }
+                } else {
+                    valToType = pendingCard;
+                }
+            }
+
+            const currentClean = (input.value || '').replace(/\D/g, '');
+            const targetClean = (valToType || '').replace(/\D/g, '');
+
+            if (targetClean && currentClean !== targetClean) {
+                console.log(`[CS Iframe] Found matching field [${fieldLabel}]. Current length: ${currentClean.length}, Target length: ${targetClean.length}. Typing value...`);
+                isTyping = true;
+                try {
+                    await typeIntoMicroform(input, targetClean);
+                } finally {
+                    isTyping = false;
+                }
+                console.log(`[CS Iframe] Finished typing [${fieldLabel}]. Resulting input.value: "${input.value}"`);
+            }
+        }
+
+        async function typeIntoMicroform(input, value) {
+            if (!value) return;
+            const currentClean = (input.value || '').replace(/\D/g, '');
+            if (currentClean === value) {
+                console.log(`[CS Iframe] Field already matches UI value (${value.length} digits). Skipping typing.`);
+                return;
+            }
+            
+            console.log(`[CS Iframe] Simulating human keystrokes for target value length: ${value.length}`);
+            try {
+                input.focus();
+                await sleep(gaussianRandom(180, 30, 90, 300));
+                
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+
+                // Clear previous value
+                if (input.value !== '') {
+                    if (setter) {
+                        setter.call(input, "");
+                    } else {
+                        input.value = "";
+                    }
+                    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                }
+
+                await sleep(gaussianRandom(120, 20, 60, 180));
+
+                for (let i = 0; i < value.length; i++) {
+                    const char = value[i];
+                    const keyCode = char.charCodeAt(0);
+                    const sc = window.InputDeviceCapabilities ? new InputDeviceCapabilities({ firesTouchEvents: false }) : null;
+                    const keyEventInit = {
+                        key: char,
+                        code: isNaN(char) ? `Key${char.toUpperCase()}` : `Digit${char}`,
+                        keyCode: keyCode,
+                        which: keyCode,
+                        bubbles: true,
+                        cancelable: true,
+                        composed: true,
+                        sourceCapabilities: sc
+                    };
+
+                    input.dispatchEvent(new KeyboardEvent('keydown', keyEventInit));
+                    input.dispatchEvent(new KeyboardEvent('keypress', keyEventInit));
+                    
+                    // Dispatch beforeinput
+                    try {
+                        input.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, composed: true, data: char, inputType: 'insertText' }));
+                    } catch(e) {}
+
+                    const curVal = input.value;
+                    let inserted = false;
+                    try {
+                        inserted = document.execCommand('insertText', false, char);
+                    } catch (e) {}
+
+                    if (!inserted || input.value === curVal) {
+                        const nextVal = curVal + char;
+                        if (input._valueTracker) {
+                            input._valueTracker.setValue('__val__' + Math.random());
+                        }
+                        if (setter) {
+                            setter.call(input, nextVal);
+                        } else {
+                            input.value = nextVal;
+                        }
+                        input.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: char, inputType: 'insertText' }));
+                        input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                    }
+                    
+                    // Human Key Press Hold duration
+                    await sleep(gaussianRandom(48, 8, 30, 80));
+                    
+                    input.dispatchEvent(new KeyboardEvent('keyup', keyEventInit));
+                    
+                    // Inter-key flight latency
+                    let flightTime = gaussianRandom(85, 16, 50, 150);
+                    
+                    // Credit card 4-digit chunk glance pause (e.g. 4111 [pause] 2222 [pause] ...)
+                    if (value.length > 6 && i > 0 && (i + 1) % 4 === 0 && (i + 1) < value.length) {
+                        flightTime = gaussianRandom(220, 35, 140, 320);
+                    } else if (Math.random() < 0.1) {
+                        flightTime += gaussianRandom(70, 15, 30, 120);
+                    }
+                    
+                    await sleep(flightTime);
+                }
+
+                await sleep(gaussianRandom(140, 25, 70, 220));
+
+                // Verification check against UI settings
+                const finalDigits = (input.value || '').replace(/\D/g, '');
+                if (finalDigits !== value) {
+                    console.log(`[CS Iframe] Field digits (${finalDigits}) did not match UI target (${value}). Applying direct correction...`);
+                    if (input._valueTracker) {
+                        input._valueTracker.setValue('__val__' + Math.random());
+                    }
+                    if (setter) {
+                        setter.call(input, value);
+                    } else {
+                        input.value = value;
+                    }
+                    input.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, data: value, inputType: 'insertText' }));
+                    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                }
+
+                input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                input.blur();
+                input.dispatchEvent(new Event('blur', { bubbles: true, composed: true }));
+                await sleep(gaussianRandom(150, 30, 80, 250));
+            } catch (err) {
+                console.error("[CS Iframe] Error during typeIntoMicroform execution:", err);
+            }
+        }
+
+        // Listen for postMessage from parent
+        window.addEventListener('message', async (e) => {
+            if (e.data && e.data.type === 'PC_FILL_CYBERSOURCE') {
+                if (e.data.cardNumber) pendingCard = e.data.cardNumber;
+                if (e.data.cvv) pendingCVV = e.data.cvv;
+                await tryFillIframeInput();
+            }
+        });
+
+        // Listen for GM value changes when bot is active
+        if (typeof GM_addValueChangeListener !== 'undefined') {
+            try {
+                GM_addValueChangeListener('pc_bot_trigger_fill', (name, oldValue, newValue) => {
+                    tryFillIframeInput();
+                });
+            } catch (e) {
+                console.warn("[CS Iframe] GM listener failed:", e);
+            }
+        }
+
+        console.log("[CS Iframe] CyberSource microform handler ready on: " + window.location.hostname);
+        return; // Terminate execution for iframe so UI doesn't render inside iframe
+    }
+
+    // =========================================================================
+    // 2. MAIN POKEMON CENTER SCRIPT (Parent Window)
+    // =========================================================================
     let uiContainer = null;
     let consoleContainer = null;
     let lastUrl = '';
     let isBotRunning = false;
     let botActionInProgress = false;
 
-    // Helper to simulate sleep/delays
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    // Broadcast card details to all CyberSource Flex Microform iframes
+    function broadcastToCybersourceIframes(cardNumber, cvv) {
+        const payload = {
+            type: 'PC_FILL_CYBERSOURCE',
+            cardNumber: cardNumber,
+            cvv: cvv,
+            timestamp: Date.now()
+        };
 
-    // Simulate human click with full event lifecycle and random micro-delays
-    async function simulateHumanClick(element) {
-        const events = ['mouseover', 'mousedown', 'mouseup', 'click'];
-        for (const eventType of events) {
-            const event = new MouseEvent(eventType, {
-                view: window,
-                bubbles: true,
-                cancelable: true,
-                buttons: eventType === 'mouseover' ? 0 : 1
-            });
-            element.dispatchEvent(event);
-            await sleep(10 + Math.random() * 20); 
-        }
-    }
+        const iframes = document.querySelectorAll('iframe');
+        iframes.forEach(iframe => {
+            try {
+                iframe.contentWindow.postMessage(payload, '*');
+            } catch (e) {}
+        });
 
-    // Simulate human typing for React-based inputs
-    async function simulateHumanType(element, text) {
-        if (!element || !text) return;
-        
-        element.focus();
-        // Trigger React's onChange by using the native value setter
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-        
-        // Clear existing value if any
-        nativeInputValueSetter.call(element, "");
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        
-        for (let i = 0; i < text.length; i++) {
-            const char = text[i];
-            nativeInputValueSetter.call(element, element.value + char);
-            element.dispatchEvent(new Event('input', { bubbles: true }));
-            
-            // Random human typing delay (30ms - 100ms)
-            await sleep(30 + Math.random() * 70); 
-        }
-        
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-        element.blur();
-        
-        // Pause slightly between fields
-        await sleep(200 + Math.random() * 300);
+        try {
+            if (typeof GM_setValue !== 'undefined') {
+                GM_setValue('pc_bot_card_num', cardNumber);
+                GM_setValue('pc_bot_cvv', cvv);
+                GM_setValue('pc_bot_trigger_fill', Date.now());
+            }
+        } catch (e) {}
     }
 
     // Function to append logs to our custom UI console
@@ -82,11 +569,10 @@
         logLine.innerHTML = `<span style="color: #666; font-size: 11px;">[${time}]</span> ${message}`;
         
         consoleContainer.appendChild(logLine);
-        // Auto scroll to bottom
         consoleContainer.scrollTop = consoleContainer.scrollHeight;
     }
 
-    // Function to initialize the Beautiful UI
+    // Function to initialize the UI
     function initUI() {
         if (!uiContainer) {
             uiContainer = document.createElement('div');
@@ -103,7 +589,7 @@
             uiContainer.style.fontSize = '14px';
             uiContainer.style.boxShadow = '0 8px 24px rgba(0,0,0,0.8)';
             uiContainer.style.pointerEvents = 'auto'; 
-            uiContainer.style.width = '340px';
+            uiContainer.style.width = '350px';
             uiContainer.style.border = '1px solid #333';
             uiContainer.style.maxHeight = '90vh';
             uiContainer.style.overflowY = 'auto';
@@ -112,23 +598,23 @@
         }
         
         uiContainer.innerHTML = `
-            <div id="botPageType" style="margin-bottom: 15px; font-size: 16px; font-weight: bold; color: #fff;">🌐 Initializing...</div>
+            <div id="botPageType" style="margin-bottom: 12px; font-size: 15px; font-weight: bold; color: #fff;">🌐 Initializing...</div>
             
             <!-- Controls -->
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
                 <label style="font-weight: bold; color: #ccc;">Target Qty:</label>
                 <input type="number" id="botTargetQty" value="1" min="1" max="99" style="width: 60px; padding: 4px; background: #222; color: #fff; border-radius: 4px; border: 1px solid #555;" />
             </div>
             
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px;">
                 <button id="botStartBtn" style="flex: 1; padding: 8px; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; transition: 0.2s;">▶ Start</button>
                 <button id="botStopBtn" style="flex: 1; padding: 8px; cursor: pointer; background: #dc3545; color: white; border: none; border-radius: 4px; font-weight: bold; transition: 0.2s;">⏹ Stop</button>
             </div>
 
-            <!-- Profile Settings -->
-            <details style="margin-bottom: 15px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
-                <summary style="cursor: pointer; font-weight: bold; color: #ffcc00; outline: none;">⚙️ Shipping Profile (For Checkout)</summary>
-                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+            <!-- Shipping Profile Settings -->
+            <details style="margin-bottom: 10px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
+                <summary style="cursor: pointer; font-weight: bold; color: #ffcc00; outline: none;">📦 Shipping Profile</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
                     <input type="text" id="p_fn" placeholder="First Name" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
                     <input type="text" id="p_ln" placeholder="Last Name" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
                     <input type="text" id="p_addr" placeholder="Street Address" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
@@ -136,13 +622,38 @@
                     <input type="text" id="p_zip" placeholder="Zip Code" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
                     <input type="text" id="p_phone" placeholder="Phone Number" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
                     <input type="email" id="p_email" placeholder="Email" style="padding: 4px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
-                    <button id="botSaveProfileBtn" style="padding: 4px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Save Profile</button>
+                </div>
+            </details>
+
+            <!-- Payment Details Settings -->
+            <details open style="margin-bottom: 12px; background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
+                <summary style="cursor: pointer; font-weight: bold; color: #00d2ff; outline: none;">💳 Payment Details</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+                    <div>
+                        <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">Card Number:</div>
+                        <input type="text" id="p_card_num" placeholder="16-digit Card Number" style="width: 100%; box-sizing: border-box; padding: 5px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <div style="flex: 1;">
+                            <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">Month:</div>
+                            <input type="text" id="p_exp_month" placeholder="MM (08)" maxlength="2" style="width: 100%; box-sizing: border-box; padding: 5px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
+                        </div>
+                        <div style="flex: 1;">
+                            <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">Year:</div>
+                            <input type="text" id="p_exp_year" placeholder="YYYY (2026)" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 5px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
+                        </div>
+                        <div style="flex: 1;">
+                            <div style="font-size: 11px; color: #aaa; margin-bottom: 2px;">CVV2 / CVC:</div>
+                            <input type="text" id="p_cvv" placeholder="CVV2" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 5px; background: #222; color: #fff; border: 1px solid #555; border-radius: 4px;" />
+                        </div>
+                    </div>
+                    <button id="botSaveSettingsBtn" style="margin-top: 6px; padding: 7px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">💾 Save Profile & Card</button>
                 </div>
             </details>
             
             <!-- Terminal Log -->
             <div style="font-size: 11px; font-weight: bold; color: #888; margin-bottom: 5px; letter-spacing: 1px;">TERMINAL LOG</div>
-            <div id="botConsole" style="background: #000; border-radius: 6px; padding: 10px; height: 180px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 12px; border: 1px solid #333; box-shadow: inset 0 2px 5px rgba(0,0,0,0.5);">
+            <div id="botConsole" style="background: #000; border-radius: 6px; padding: 10px; height: 160px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 12px; border: 1px solid #333; box-shadow: inset 0 2px 5px rgba(0,0,0,0.5);">
             </div>
         `;
 
@@ -161,7 +672,14 @@
         const p_zip = document.getElementById('p_zip');
         const p_phone = document.getElementById('p_phone');
         const p_email = document.getElementById('p_email');
-        const saveProfileBtn = document.getElementById('botSaveProfileBtn');
+
+        // Payment Elements
+        const p_card_num = document.getElementById('p_card_num');
+        const p_exp_month = document.getElementById('p_exp_month');
+        const p_exp_year = document.getElementById('p_exp_year');
+        const p_cvv = document.getElementById('p_cvv');
+
+        const saveSettingsBtn = document.getElementById('botSaveSettingsBtn');
 
         // Load Settings
         if (qtyInput) qtyInput.value = localStorage.getItem('pc_bot_target_qty') || '1';
@@ -173,22 +691,47 @@
         if (p_phone) p_phone.value = localStorage.getItem('pc_bot_phone') || '';
         if (p_email) p_email.value = localStorage.getItem('pc_bot_email') || '';
 
+        if (p_card_num) p_card_num.value = localStorage.getItem('pc_bot_card_num') || '';
+        if (p_exp_month) p_exp_month.value = localStorage.getItem('pc_bot_exp_month') || '08';
+        if (p_exp_year) p_exp_year.value = localStorage.getItem('pc_bot_exp_year') || '2026';
+        if (p_cvv) p_cvv.value = localStorage.getItem('pc_bot_cvv') || '';
+
         if (qtyInput) {
             qtyInput.addEventListener('change', (e) => {
                 localStorage.setItem('pc_bot_target_qty', e.target.value);
             });
         }
 
-        if (saveProfileBtn) {
-            saveProfileBtn.addEventListener('click', () => {
-                localStorage.setItem('pc_bot_fn', p_fn.value);
-                localStorage.setItem('pc_bot_ln', p_ln.value);
-                localStorage.setItem('pc_bot_addr', p_addr.value);
-                localStorage.setItem('pc_bot_apt', p_apt.value);
-                localStorage.setItem('pc_bot_zip', p_zip.value);
-                localStorage.setItem('pc_bot_phone', p_phone.value);
-                localStorage.setItem('pc_bot_email', p_email.value);
-                logToConsole("Profile saved locally.", "success");
+        if (saveSettingsBtn) {
+            saveSettingsBtn.addEventListener('click', () => {
+                localStorage.setItem('pc_bot_fn', p_fn.value.trim());
+                localStorage.setItem('pc_bot_ln', p_ln.value.trim());
+                localStorage.setItem('pc_bot_addr', p_addr.value.trim());
+                localStorage.setItem('pc_bot_apt', p_apt.value.trim());
+                localStorage.setItem('pc_bot_zip', p_zip.value.trim());
+                localStorage.setItem('pc_bot_phone', p_phone.value.trim());
+                localStorage.setItem('pc_bot_email', p_email.value.trim());
+
+                const cardNum = p_card_num.value.replace(/\s+/g, '');
+                const expMonth = p_exp_month.value.trim().padStart(2, '0');
+                let expYear = p_exp_year.value.trim();
+                if (expYear.length === 2) expYear = '20' + expYear;
+                const cvv = p_cvv.value.trim();
+
+                localStorage.setItem('pc_bot_card_num', cardNum);
+                localStorage.setItem('pc_bot_exp_month', expMonth);
+                localStorage.setItem('pc_bot_exp_year', expYear);
+                localStorage.setItem('pc_bot_cvv', cvv);
+
+                try {
+                    if (typeof GM_setValue !== 'undefined') {
+                        GM_setValue('pc_bot_card_num', cardNum);
+                        GM_setValue('pc_bot_cvv', cvv);
+                        GM_setValue('pc_bot_trigger_fill', Date.now());
+                    }
+                } catch (e) {}
+
+                logToConsole("Settings & Card profile saved successfully.", "success");
             });
         }
 
@@ -231,11 +774,11 @@
 
     // Helper to extract the cart count from the header element
     function getCartCount() {
-        const cartEl = document.querySelector('a.header-cart--_2R2kd');
+        const cartEl = document.querySelector('a.header-cart--_2R2kd, a[class*="header-cart"]');
         if (cartEl) {
             return parseInt(cartEl.getAttribute('data-count') || "0", 10);
         }
-        return -1; // Cart element not found
+        return -1;
     }
 
     // --- Product Page Logic ---
@@ -289,7 +832,7 @@
                 await simulateHumanClick(decreaseBtn);
             }
             
-            await sleep(250 + Math.random() * 200); 
+            await sleep(gaussianRandom(260, 45, 180, 400));
             currentQty = parseInt(input.value, 10);
         }
 
@@ -302,7 +845,7 @@
         if (addToCartBtn && !addToCartBtn.disabled) {
             const initialCartCount = getCartCount();
             
-            await sleep(400 + Math.random() * 500); 
+            await sleep(gaussianRandom(450, 80, 300, 700));
             logToConsole(`Clicking 'Add to Cart'...`, "info");
             await simulateHumanClick(addToCartBtn);
             
@@ -323,19 +866,19 @@
                 logToConsole(`❌ Cart count didn't increase in time.`, "error");
             } else {
                 logToConsole(`Proceeding to Cart...`, "info");
-                await sleep(500 + Math.random() * 500); 
+                await sleep(gaussianRandom(600, 90, 400, 900));
                 
-                const cartBtn = document.querySelector('a.header-cart--_2R2kd');
+                const cartBtn = document.querySelector('a.header-cart--_2R2kd, a[class*="header-cart"]');
                 if (cartBtn) {
                     await simulateHumanClick(cartBtn);
-                    cartBtn.click(); 
+                    try { cartBtn.click(); } catch(e) {}
                 }
             }
         } else {
             logToConsole(`❌ 'Add to Cart' button is disabled.`, "error");
         }
 
-        await sleep(3000);
+        await sleep(2500);
         botActionInProgress = false;
     }
 
@@ -344,33 +887,63 @@
         if (!isBotRunning || botActionInProgress) return;
         botActionInProgress = true;
         
-        logToConsole(`Looking for Guest Checkout...`, "info");
-        await sleep(1000 + Math.random() * 500);
+        logToConsole(`Evaluating Checkout options on Cart...`, "info");
+        await sleep(gaussianRandom(700, 90, 450, 1000));
         
-        const guestCheckoutBtn = document.getElementById('guest-checkout');
+        const signInRegisterBtn = document.getElementById('signIn-register') || 
+                                  document.querySelector('a[href*="/signin"]') || 
+                                  document.querySelector('button[data-testid="signin-button"]');
         
-        if (!guestCheckoutBtn) {
-            logToConsole(`Waiting for Guest Checkout...`, "warning");
+        const accountIndicator = document.querySelector('.header-account--_1-XWn, a[href*="/account"], div[class*="account"], button[class*="account"]');
+        const isAccountLoggedIn = !signInRegisterBtn || !!accountIndicator;
+
+        let targetBtn = null;
+        let btnLabel = "";
+        
+        if (isAccountLoggedIn && !signInRegisterBtn) {
+            logToConsole(`👤 Account detected! Targeting 'Continue Checkout'...`, "info");
+            targetBtn = document.getElementById('checkout') || 
+                        document.querySelector('button[data-ge-checkout-button="true"]') || 
+                        document.querySelector('button[data-testid="checkout-button"]') || 
+                        document.querySelector('a[href*="/checkout"]') ||
+                        document.getElementById('guest-checkout');
+            btnLabel = "Continue Checkout";
+        } else {
+            logToConsole(`Guest flow: Looking for Guest Checkout...`, "info");
+            targetBtn = document.getElementById('guest-checkout') || 
+                        document.getElementById('checkout') || 
+                        document.querySelector('button[data-ge-checkout-button="true"]');
+            btnLabel = targetBtn?.id === 'guest-checkout' ? "Guest Checkout" : "Continue Checkout";
+        }
+        
+        if (!targetBtn) {
+            const btns = Array.from(document.querySelectorAll('button, a'));
+            targetBtn = btns.find(b => b.innerText && (b.innerText.toLowerCase().includes('checkout') || b.innerText.toLowerCase().includes('continue')));
+            btnLabel = "Checkout";
+        }
+
+        if (!targetBtn) {
+            logToConsole(`Waiting for Checkout button...`, "warning");
             await sleep(1000);
             botActionInProgress = false;
             return;
         }
 
-        if (guestCheckoutBtn.disabled) {
-            logToConsole(`Guest Checkout is disabled. Waiting...`, "warning");
+        if (targetBtn.disabled) {
+            logToConsole(`${btnLabel} is disabled. Waiting...`, "warning");
             await sleep(1000);
             botActionInProgress = false;
             return;
         }
 
-        logToConsole(`Clicking Guest Checkout...`, "success");
-        await sleep(500 + Math.random() * 500);
-        await simulateHumanClick(guestCheckoutBtn);
-        guestCheckoutBtn.click(); 
+        logToConsole(`Clicking ${btnLabel}...`, "success");
+        await sleep(gaussianRandom(550, 80, 400, 850));
+        await simulateHumanClick(targetBtn);
+        try { targetBtn.click(); } catch(e) {}
         
-        logToConsole(`✅ Proceeding to Checkout Form!`, "success");
+        logToConsole(`✅ Proceeding to Checkout Page!`, "success");
 
-        await sleep(3000);
+        await sleep(2500);
         botActionInProgress = false;
     }
 
@@ -378,89 +951,297 @@
     async function executeCheckoutPageBot() {
         if (!isBotRunning || botActionInProgress) return;
         botActionInProgress = true;
-        
-        logToConsole(`Looking for Shipping Form...`, "info");
-        await sleep(2000 + Math.random() * 1000); // Give the form time to load
-        
-        const firstName = document.getElementById('shipping-givenName');
-        const lastName = document.getElementById('shipping-familyName');
-        
-        if (!firstName || !lastName) {
-            logToConsole(`Shipping form not found yet...`, "warning");
-            await sleep(1000);
+
+        logToConsole(`Checking Checkout Page state...`, "info");
+        await sleep(gaussianRandom(1000, 120, 750, 1400));
+
+        // Step 0: Check for Order Summary Page
+        if (window.location.href.includes('/checkout/summary')) {
+            logToConsole(`📑 Order Summary Page detected.`, "info");
+            await sleep(gaussianRandom(1500, 200, 1000, 2500));
+            
+            let placeOrderBtn = document.querySelector('button[value="PLACE ORDER"]') ||
+                                Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.toUpperCase().includes('PLACE ORDER'));
+
+            if (placeOrderBtn && !placeOrderBtn.disabled) {
+                logToConsole(`✅ Clicking PLACE ORDER...`, "success");
+                await simulateHumanClick(placeOrderBtn);
+                try { placeOrderBtn.click(); } catch(e) {}
+                await sleep(3000);
+                
+                logToConsole(`🎉 Checkout completed! Stopping bot.`, "success");
+                isBotRunning = false;
+                localStorage.setItem('pc_bot_running', 'false');
+                updateButtons();
+            } else {
+                logToConsole(`Waiting for PLACE ORDER button...`, "info");
+            }
             botActionInProgress = false;
             return;
         }
 
-        logToConsole(`Filling shipping form...`, "info");
-        
-        // Retrieve settings
-        const p_fn = localStorage.getItem('pc_bot_fn') || '';
-        const p_ln = localStorage.getItem('pc_bot_ln') || '';
-        const p_addr = localStorage.getItem('pc_bot_addr') || '';
-        const p_apt = localStorage.getItem('pc_bot_apt') || '';
-        const p_zip = localStorage.getItem('pc_bot_zip') || '';
-        const p_phone = localStorage.getItem('pc_bot_phone') || '';
-        const p_email = localStorage.getItem('pc_bot_email') || '';
+        // Step 1: Check if Billing Form is already displayed
+        const isPaymentUrl = window.location.href.includes('/checkout/payment');
+        const billingSelector = document.getElementById('billing-selector') || 
+                                document.querySelector('select.billing-method-selector--hoF5C') ||
+                                document.querySelector('#billing-form select');
+        const billingForm = document.getElementById('billing-form') || 
+                            document.querySelector('form.billing--_3mMdc') ||
+                            document.querySelector('form[class*="billing"]');
+        const cardIframe = document.querySelector('iframe[src*="cybersource.com"]');
 
-        if (!p_fn || !p_ln || !p_addr || !p_zip || !p_phone || !p_email) {
-            logToConsole(`❌ Profile incomplete! Fill settings in UI.`, "error");
-            isBotRunning = false;
-            localStorage.setItem('pc_bot_running', 'false');
-            updateButtons();
+        if (billingSelector || billingForm || cardIframe || isPaymentUrl) {
+            await handleBillingForm();
             botActionInProgress = false;
             return;
         }
 
-        // Fill fields humanly
-        if (firstName) await simulateHumanType(firstName, p_fn);
-        if (lastName) await simulateHumanType(lastName, p_ln);
-        
-        const street = document.getElementById('shipping-streetAddress');
-        if (street) await simulateHumanType(street, p_addr);
-        
-        const ext = document.getElementById('shipping-extendedAddress');
-        if (ext && p_apt) await simulateHumanType(ext, p_apt);
-        
-        const zip = document.getElementById('shipping-postalCode');
-        if (zip) await simulateHumanType(zip, p_zip);
-        
-        const phone = document.getElementById('shipping-phoneNumber');
-        if (phone) await simulateHumanType(phone, p_phone);
-        
-        const email = document.getElementById('shipping-email');
-        if (email) await simulateHumanType(email, p_email);
-        
-        logToConsole(`✅ Shipping Form filled!`, "success");
-        
-        logToConsole(`Looking for CONTINUE button...`, "info");
-        await sleep(500 + Math.random() * 500); // Wait before clicking continue
-        
-        // Look for the continue button by value or text
-        let continueBtn = document.querySelector('button[value="CONTINUE"]');
+        // Step 2: Check for Shipping Form
+        const firstName = document.getElementById('shipping-givenName') || document.querySelector('input[name="firstName"]');
+        const lastName = document.getElementById('shipping-familyName') || document.querySelector('input[name="lastName"]');
+
+        if (firstName && lastName) {
+            if (!firstName.value || !lastName.value) {
+                logToConsole(`📦 Shipping Form detected. Filling details humanly...`, "info");
+
+                const p_fn = localStorage.getItem('pc_bot_fn') || '';
+                const p_ln = localStorage.getItem('pc_bot_ln') || '';
+                const p_addr = localStorage.getItem('pc_bot_addr') || '';
+                const p_apt = localStorage.getItem('pc_bot_apt') || '';
+                const p_zip = localStorage.getItem('pc_bot_zip') || '';
+                const p_phone = localStorage.getItem('pc_bot_phone') || '';
+                const p_email = localStorage.getItem('pc_bot_email') || '';
+
+                if (!p_fn || !p_ln || !p_addr || !p_zip || !p_phone || !p_email) {
+                    logToConsole(`❌ Shipping Profile incomplete! Fill in UI settings.`, "error");
+                    isBotRunning = false;
+                    localStorage.setItem('pc_bot_running', 'false');
+                    updateButtons();
+                    botActionInProgress = false;
+                    return;
+                }
+
+                // Fill shipping fields humanly with keystroke dynamics
+                await simulateHumanType(firstName, p_fn);
+                await simulateHumanType(lastName, p_ln);
+
+                const street = document.getElementById('shipping-streetAddress') || document.querySelector('input[name="streetAddress"]');
+                if (street) await simulateHumanType(street, p_addr);
+
+                const ext = document.getElementById('shipping-extendedAddress') || document.querySelector('input[name="extendedAddress"]');
+                if (ext && p_apt) await simulateHumanType(ext, p_apt);
+
+                const zip = document.getElementById('shipping-postalCode') || document.querySelector('input[name="postalCode"]');
+                if (zip) await simulateHumanType(zip, p_zip);
+
+                const phone = document.getElementById('shipping-phoneNumber') || document.querySelector('input[name="phoneNumber"]');
+                if (phone) await simulateHumanType(phone, p_phone);
+
+                const email = document.getElementById('shipping-email') || document.querySelector('input[name="email"]');
+                if (email) await simulateHumanType(email, p_email);
+
+                logToConsole(`✅ Shipping Form filled!`, "success");
+                await sleep(gaussianRandom(500, 70, 350, 750));
+            } else {
+                logToConsole(`📦 Shipping details already populated.`, "info");
+            }
+        } else {
+            const savedAddress = document.querySelector('.saved-address--_2eS2L, div[class*="saved-address"], div[class*="address-card"]');
+            if (savedAddress) {
+                logToConsole(`👤 Saved account shipping address detected!`, "info");
+            }
+        }
+
+        // Look for the CONTINUE button (e.g. after shipping address or on saved address screen)
+        logToConsole(`Looking for CONTINUE / Proceed to Payment button...`, "info");
+        let continueBtn = document.querySelector('button[value="CONTINUE"]') ||
+                          document.querySelector('button[data-testid="continue-to-payment"]') ||
+                          document.querySelector('button.delivery-continue-button') ||
+                          document.querySelector('button.shipping-continue-button') ||
+                          document.querySelector('button[type="submit"]');
+
         if (!continueBtn) {
             const btns = Array.from(document.querySelectorAll('button'));
-            continueBtn = btns.find(b => b.innerText && b.innerText.includes('CONTINUE'));
+            continueBtn = btns.find(b => b.innerText && (
+                b.innerText.toUpperCase().includes('CONTINUE') || 
+                b.innerText.toUpperCase().includes('PAYMENT') ||
+                b.innerText.toUpperCase().includes('SAVE & CONTINUE') ||
+                b.innerText.toUpperCase().includes('PROCEED')
+            ));
         }
 
-        if (continueBtn) {
-            logToConsole(`Clicking CONTINUE...`, "success");
+        if (continueBtn && !continueBtn.disabled) {
+            logToConsole(`Clicking CONTINUE to proceed to Payment...`, "success");
             await simulateHumanClick(continueBtn);
-            continueBtn.click(); // Ensure click triggers
-        } else {
-            logToConsole(`❌ CONTINUE button not found.`, "error");
+            try { continueBtn.click(); } catch(e) {}
+            await sleep(gaussianRandom(1500, 200, 1100, 2000));
         }
-        
-        // Stop the bot so the user can verify payment details
-        isBotRunning = false;
-        localStorage.setItem('pc_bot_running', 'false');
-        updateButtons();
-        logToConsole(`Bot halted. Please review payment screen.`, "warning");
 
-        await sleep(3000);
+        // Wait and check for Billing Form after clicking continue
+        for (let i = 0; i < 20; i++) {
+            const billSelect = document.getElementById('billing-selector') || 
+                               document.querySelector('select.billing-method-selector--hoF5C') ||
+                               document.querySelector('#billing-form');
+            if (billSelect) {
+                await handleBillingForm();
+                break;
+            }
+            await sleep(500);
+        }
+
         botActionInProgress = false;
     }
 
+    // --- Billing & Payment Logic ---
+    async function handleBillingForm() {
+        logToConsole(`💳 Billing & Payment Form detected!`, "info");
+
+        // Try to find the billing selector (dropdown)
+        let billingSelector = document.getElementById('billing-selector') || 
+                               document.querySelector('select.billing-method-selector--hoF5C') || 
+                               document.querySelector('#billing-form select');
+                               
+        const expiryMonthEl = document.getElementById('expiryMonth') || 
+                              document.querySelector('select.billing-month-selector--lXrUh') || 
+                              document.querySelector('select[name="expiryMonth"]');
+        const cardIframe = document.querySelector('iframe[src*="cybersource.com"]');
+
+        if (!billingSelector && !expiryMonthEl && !cardIframe) {
+            // Wait up to 10 seconds for any of them to appear
+            for (let i = 0; i < 20; i++) {
+                await sleep(400);
+                billingSelector = document.getElementById('billing-selector') || 
+                                  document.querySelector('select.billing-method-selector--hoF5C') || 
+                                  document.querySelector('#billing-form select');
+                const tempExpiry = document.getElementById('expiryMonth') || 
+                                   document.querySelector('select.billing-month-selector--lXrUh') || 
+                                   document.querySelector('select[name="expiryMonth"]');
+                const tempIframe = document.querySelector('iframe[src*="cybersource.com"]');
+                if (billingSelector || tempExpiry || tempIframe) {
+                    break;
+                }
+            }
+        }
+
+        // Re-check
+        const finalExpiry = document.getElementById('expiryMonth') || 
+                            document.querySelector('select.billing-month-selector--lXrUh') || 
+                            document.querySelector('select[name="expiryMonth"]');
+        const finalIframe = document.querySelector('iframe[src*="cybersource.com"]');
+        billingSelector = document.getElementById('billing-selector') || 
+                          document.querySelector('select.billing-method-selector--hoF5C') || 
+                          document.querySelector('#billing-form select');
+
+        if (!billingSelector && !finalExpiry && !finalIframe) {
+            logToConsole(`Waiting for Payment / Billing section to load...`, "warning");
+            return;
+        }
+
+        if (billingSelector) {
+            logToConsole(`✅ Billing selector ready! Selecting 'Credit/Debit Card'...`, "info");
+            await sleep(gaussianRandom(400, 60, 250, 600));
+
+            // Click "Select payment method" dropdown and select "Credit/Debit Card"
+            if (billingSelector.value !== 'credit-card') {
+                logToConsole(`Selecting 'Credit/Debit Card' method...`, "info");
+                await simulateHumanSelect(billingSelector, 'credit-card');
+            } else {
+                logToConsole(`'Credit/Debit Card' already selected.`, "info");
+            }
+
+            // Wait for card container to expand
+            logToConsole(`Waiting for Credit Card fields container to appear...`, "info");
+            let cardContainer = null;
+            for (let i = 0; i < 20; i++) {
+                cardContainer = document.getElementById('card-number-container') || 
+                                document.querySelector('.billing-card-number--rchpm') || 
+                                document.querySelector('#expiryMonth') || 
+                                document.querySelector('select.billing-month-selector--lXrUh');
+                if (cardContainer) break;
+                
+                // If not expanded after 4 attempts, re-trigger selection
+                if (i === 4 || i === 10) {
+                    logToConsole(`Re-triggering payment method selection...`, "warning");
+                    await simulateHumanSelect(billingSelector, 'credit-card');
+                }
+                await sleep(400);
+            }
+
+            if (!cardContainer) {
+                logToConsole(`⚠️ Card inputs container did not appear after selection.`, "error");
+            }
+        } else {
+            logToConsole(`No billing selector dropdown found, but payment input fields are directly on screen. Proceeding...`, "info");
+        }
+
+        await sleep(gaussianRandom(600, 80, 450, 900));
+
+        // Retrieve card details from storage
+        const cardNum = localStorage.getItem('pc_bot_card_num') || '';
+        const expMonth = (localStorage.getItem('pc_bot_exp_month') || '08').padStart(2, '0');
+        let expYear = localStorage.getItem('pc_bot_exp_year') || '2026';
+        if (expYear.length === 2) expYear = '20' + expYear;
+        const cvv = localStorage.getItem('pc_bot_cvv') || '';
+
+        if (!cardNum || !expMonth || !expYear || !cvv) {
+            logToConsole(`⚠️ Payment details missing in UI settings! Please configure them.`, "warning");
+            isBotRunning = false;
+            localStorage.setItem('pc_bot_running', 'false');
+            updateButtons();
+            return;
+        }
+
+        // Fill Expiry Month
+        const expiryMonthElFill = finalExpiry || 
+                                  document.getElementById('expiryMonth') || 
+                                  document.querySelector('select.billing-month-selector--lXrUh') || 
+                                  document.querySelector('select[name="expiryMonth"]');
+        if (expiryMonthElFill) {
+            logToConsole(`🗓️ Selecting Expiration Month: ${expMonth}`, "info");
+            await simulateHumanSelect(expiryMonthElFill, expMonth);
+        } else {
+            logToConsole(`⚠️ Expiration Month dropdown not found.`, "warning");
+        }
+
+        await sleep(gaussianRandom(350, 50, 220, 550));
+
+        // Fill Expiry Year
+        const expiryYearEl = document.getElementById('expiryYear') || 
+                             document.querySelector('select.billing-year-selector--_8jgch') || 
+                             document.querySelector('select[name="expiryYear"]');
+        if (expiryYearEl) {
+            logToConsole(`🗓️ Selecting Expiration Year: ${expYear}`, "info");
+            await simulateHumanSelect(expiryYearEl, expYear);
+        } else {
+            logToConsole(`⚠️ Expiration Year dropdown not found.`, "warning");
+        }
+
+        await sleep(gaussianRandom(450, 60, 300, 650));
+
+        // Fill Card Number & CVV via CyberSource Microform iframes
+        logToConsole(`🔒 Autofilling Card Number & CVV via secure CyberSource microforms...`, "info");
+        broadcastToCybersourceIframes(cardNum, cvv);
+        
+        // Wait comfortably for realistic human typing keystrokes to complete in iframes
+        await sleep(4000);
+
+        logToConsole(`✅ Credit Card & Billing information autofilled successfully!`, "success");
+        
+        await sleep(gaussianRandom(800, 150, 500, 1200));
+
+        // Find and click the CONTINUE button on the payment form
+        let paymentContinueBtn = document.querySelector('button[value="CONTINUE"]') ||
+                                 Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.trim().toUpperCase() === 'CONTINUE');
+
+        if (paymentContinueBtn && !paymentContinueBtn.disabled) {
+            logToConsole(`✅ Clicking CONTINUE to review order...`, "success");
+            await simulateHumanClick(paymentContinueBtn);
+            try { paymentContinueBtn.click(); } catch(e) {}
+            await sleep(gaussianRandom(2000, 300, 1500, 3000));
+        } else {
+            logToConsole(`⚠️ CONTINUE button on billing not found or disabled.`, "warning");
+        }
+    }
 
     // Function to check URL and state, update Title
     function checkUrlAndUI() {
@@ -468,11 +1249,11 @@
         const pageTypeEl = document.getElementById('botPageType');
         
         let message = "🌐 General Page";
-        if (currentUrl.includes('/checkout/')) {
+        if (currentUrl.includes('/checkout')) {
             message = "💳 Checkout Page Detected";
-        } else if (currentUrl.includes('/product/')) {
+        } else if (currentUrl.includes('/product')) {
             message = "🛍️ Product Page Detected";
-        } else if (currentUrl.includes('/search/')) {
+        } else if (currentUrl.includes('/search')) {
             message = "🔍 Search Page Detected";
         } else if (currentUrl.includes('/cart')) {
             message = "🛒 Cart Page Detected";
@@ -489,11 +1270,11 @@
     async function botLoop() {
         if (isBotRunning) {
             const currentUrl = window.location.href;
-            if (currentUrl.includes('/product/')) {
+            if (currentUrl.includes('/product')) {
                 await executeProductPageBot();
             } else if (currentUrl.includes('/cart')) {
                 await executeCartPageBot();
-            } else if (currentUrl.includes('/checkout/')) {
+            } else if (currentUrl.includes('/checkout')) {
                 await executeCheckoutPageBot();
             }
         }
@@ -501,7 +1282,7 @@
 
     // Initialize UI
     initUI();
-    logToConsole("System initialized.", "success");
+    logToConsole("System initialized with biometric humanization.", "success");
     
     // Restore bot state
     if (localStorage.getItem('pc_bot_running') === 'true') {
