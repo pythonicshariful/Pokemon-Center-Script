@@ -856,6 +856,14 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
 
         if (startBtn) {
             startBtn.addEventListener('click', () => {
+                // Auto-save watchlist and categories before starting
+                const p_wl = document.getElementById('p_watchlist');
+                if(p_wl) localStorage.setItem('pc_bot_watchlist', p_wl.value.trim());
+                ['tcg', 'plush', 'video', 'accessories'].forEach(cat => {
+                    const cb = document.getElementById(`cat_${cat}`);
+                    if (cb) localStorage.setItem(`pc_bot_cat_${cat}`, cb.checked);
+                });
+                
                 if (!isBotRunning) {
                     isBotRunning = true;
                     localStorage.setItem('pc_bot_running', 'true');
@@ -1542,51 +1550,105 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
     async function executeSearchPageBot() {
         if (!isBotRunning || botActionInProgress) return;
         botActionInProgress = true;
-        
-        logToConsole("🔍 Scanning search results...", "info");
+
+        logToConsole("Scanning search results for in-stock products...", "info");
         await sleep(1500);
-        
-        // Find product cards
-        const products = Array.from(document.querySelectorAll('.product-card, [data-testid="product-card"]'));
-        let foundUrl = null;
-        
-        for (const p of products) {
-            const urlEl = p.querySelector('a');
-            const titleEl = p.querySelector('.product-title, h3, [data-testid="product-title"]');
-            const title = titleEl ? titleEl.innerText.toLowerCase() : "";
-            
-            // Check allowed categories based on title/url heuristics
-            const allowTcg = localStorage.getItem('pc_bot_cat_tcg') === 'true';
-            const allowPlush = localStorage.getItem('pc_bot_cat_plush') === 'true';
-            const allowVideo = localStorage.getItem('pc_bot_cat_video') === 'true';
-            const allowAcc = localStorage.getItem('pc_bot_cat_accessories') === 'true';
-            
-            let isAllowed = false;
-            if (allowTcg && (title.includes('etb') || title.includes('booster') || title.includes('box') || title.includes('deck') || title.includes('collection'))) isAllowed = true;
-            if (allowPlush && title.includes('plush')) isAllowed = true;
-            if (allowVideo && (title.includes('nintendo') || title.includes('game'))) isAllowed = true;
-            if (allowAcc && (title.includes('sleeve') || title.includes('binder') || title.includes('bag') || title.includes('pin'))) isAllowed = true;
-            
-            // If it's a TCG specific requirement
-            if (isAllowed || (allowTcg && !allowPlush && !allowVideo && !allowAcc)) {
-                // Check if in stock
-                const outOfStockEl = p.querySelector('.out-of-stock, [data-testid="out-of-stock-badge"]');
-                if (!outOfStockEl && urlEl && urlEl.href) {
-                    foundUrl = urlEl.href;
-                    break;
-                }
-            }
+
+        // STRATEGY: Find all product links by href pattern.
+        // This works regardless of hashed CSS class names.
+        const allProductLinks = Array.from(document.querySelectorAll(
+            'a[href*="/product/"], a[href*="/en-gb/product/"]'
+        ));
+
+        logToConsole(`Found ${allProductLinks.length} product links on page.`, "info");
+
+        if (allProductLinks.length === 0) {
+            logToConsole("No products found. Page may still be loading — retrying...", "warning");
+            await sleep(3000);
+            botActionInProgress = false;
+            return;
         }
-        
+
+        // Read allowed categories
+        const allowTcg   = localStorage.getItem('pc_bot_cat_tcg') !== 'false';
+        const allowPlush  = localStorage.getItem('pc_bot_cat_plush') === 'true';
+        const allowVideo  = localStorage.getItem('pc_bot_cat_video') === 'true';
+        const allowAcc    = localStorage.getItem('pc_bot_cat_accessories') === 'true';
+
+        // Get keyword from URL or watchlist
+        const urlKeyword = decodeURIComponent(window.location.pathname.split('/search/')[1] || '').toLowerCase().trim();
+        const watchlistKeyword = (localStorage.getItem('pc_bot_watchlist') || '').split('\n')[0].trim().toLowerCase();
+
+        let foundUrl = null;
+        let foundTitle = '';
+        const seenHrefs = new Set();
+
+        for (const link of allProductLinks) {
+            const href = link.href;
+            if (!href || seenHrefs.has(href)) continue;
+            seenHrefs.add(href);
+
+            // Walk up the DOM to find the card container
+            let card = link;
+            for (let i = 0; i < 7; i++) {
+                if (!card.parentElement) break;
+                card = card.parentElement;
+                const rect = card.getBoundingClientRect();
+                if (rect.height > 100 && rect.width > 80) break;
+            }
+
+            const cardText  = (card.innerText || '').toLowerCase();
+            const linkLabel = (link.innerText || link.getAttribute('aria-label') || link.title || '').toLowerCase();
+            const combined  = cardText + ' ' + linkLabel;
+
+            // STOCK CHECK: look for common "out of stock" phrases anywhere in the card text
+            const outOfStockPatterns = ['unavailable', 'out of stock', 'sold out', 'coming soon', 'notify me', 'pre-order'];
+            const isUnavailable = outOfStockPatterns.some(p => combined.includes(p));
+            if (isUnavailable) {
+                logToConsole(`Skipping OOS: ${linkLabel.substring(0,40) || href.split('/').pop()}`, "warning");
+                continue;
+            }
+
+            // CATEGORY FILTER
+            const isClothing = ['shirt', 'hoodie', 'clothing', 'apparel', 'hat', 'cap', 'socks', 'jersey', 'shorts'].some(w => combined.includes(w));
+            if (isClothing && !allowAcc) continue;
+
+            let categoryMatch = false;
+
+            if (allowTcg) {
+                const tcgWords = ['booster', 'etb', 'elite trainer', 'pack', 'box', 'deck', 'collection', 'tin', 'bundle', 'display', 'tcg', 'trading card', ' card ', 'scarlet', 'violet', 'ex box', 'binder'];
+                if (tcgWords.some(w => combined.includes(w))) categoryMatch = true;
+            }
+            if (allowPlush && ['plush', 'stuffed', 'cuddly'].some(w => combined.includes(w))) categoryMatch = true;
+            if (allowVideo && ['nintendo', 'switch', 'video game', 'game boy'].some(w => combined.includes(w))) categoryMatch = true;
+            if (allowAcc && ['sleeve', 'binder', 'bag', 'pin', 'figure', 'statue', 'keychain', 'case'].some(w => combined.includes(w))) categoryMatch = true;
+
+            // Fallback: check if search keyword itself is in the card text
+            if (!categoryMatch && urlKeyword && combined.includes(urlKeyword)) categoryMatch = true;
+            if (!categoryMatch && watchlistKeyword && !watchlistKeyword.startsWith('http') && combined.includes(watchlistKeyword)) categoryMatch = true;
+
+            // Last resort: if no categories are explicitly set, allow anything
+            if (!categoryMatch && !allowTcg && !allowPlush && !allowVideo && !allowAcc) categoryMatch = true;
+
+            if (!categoryMatch) continue;
+
+            foundUrl = href;
+            foundTitle = (link.innerText || link.getAttribute('aria-label') || href.split('/').pop() || href).trim().substring(0, 70);
+            break;
+        }
+
         if (foundUrl) {
-            logToConsole(`🎯 Found matching product in stock! Navigating...`, "success");
-            notifyUser("Product Found!", "Found product: " + foundUrl);
+            logToConsole(`IN STOCK FOUND: "${foundTitle}" — Navigating now!`, "success");
+            notifyUser("PokeBot: Product In Stock!", foundTitle);
             window.location.href = foundUrl;
         } else {
-            logToConsole("No allowed products in stock. Refreshing soon...", "warning");
+            const minMs = parseFloat(document.getElementById('botMinDelay')?.value || "8") * 1000;
+            const maxMs = parseFloat(document.getElementById('botMaxDelay')?.value || "20") * 1000;
+            const waitMs = gaussianRandom(minMs, 1000, minMs * 0.8, maxMs);
+            logToConsole(`All ${allProductLinks.length} products unavailable. Refreshing in ${(waitMs/1000).toFixed(1)}s...`, "warning");
             setTimeout(() => {
                 if (isBotRunning) window.location.reload();
-            }, gaussianRandom(5000, 1000, 3000, 8000));
+            }, waitMs);
         }
         botActionInProgress = false;
     }
@@ -1597,19 +1659,28 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
             
             // Watchlist routing logic
             const watchlistRaw = localStorage.getItem('pc_bot_watchlist') || '';
-            if (watchlistRaw.trim().length > 0 && (currentUrl.endsWith('.com/') || currentUrl.endsWith('.com/en-gb/'))) {
-                // If on homepage and bot started, navigate to first watchlist item
+            if (watchlistRaw.trim().length > 0) {
                 const items = watchlistRaw.split('\n').filter(i => i.trim().length > 0);
-                const first = items[0].trim();
-                botActionInProgress = true;
-                if (first.startsWith('http')) {
-                    logToConsole(`Navigating to watchlist URL: ${first}`, "info");
-                    window.location.href = first;
-                } else {
-                    logToConsole(`Searching for keyword: ${first}`, "info");
-                    window.location.href = `https://www.pokemoncenter.com/en-gb/search/${encodeURIComponent(first)}`;
+                if (items.length > 0) {
+                    const first = items[0].trim();
+                    
+                    let isSearchingOrOnTarget = false;
+                    if (first.startsWith('http') && currentUrl === first) isSearchingOrOnTarget = true;
+                    if (!first.startsWith('http') && currentUrl.includes('/search')) isSearchingOrOnTarget = true;
+                    if (currentUrl.includes('/product') || currentUrl.includes('/cart') || currentUrl.includes('/checkout')) isSearchingOrOnTarget = true;
+
+                    if (!isSearchingOrOnTarget) {
+                        botActionInProgress = true;
+                        if (first.startsWith('http')) {
+                            logToConsole(`Navigating to watchlist URL: ${first}`, "info");
+                            window.location.href = first;
+                        } else {
+                            logToConsole(`Searching for keyword: ${first}`, "info");
+                            window.location.href = `https://www.pokemoncenter.com/en-gb/search/${encodeURIComponent(first)}`;
+                        }
+                        return;
+                    }
                 }
-                return;
             }
             
             if (currentUrl.includes('/search') || currentUrl.includes('/category') || currentUrl.includes('/new-releases')) {
