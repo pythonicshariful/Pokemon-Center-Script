@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pokemon Center Script
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      2.0
 // @description  Advanced script for pokemoncenter.com with UI Console, Humanized Account Checkout & Payment Autofill
 // @author       Pythonic Shariful
 // @match        https://www.pokemoncenter.com/*
@@ -551,6 +551,25 @@
     }
 
     // Function to append logs to our custom UI console
+    function notifyUser(title, body) {
+        if (Notification.permission === 'granted') {
+            new Notification(title, { body: body });
+        } else if (Notification.permission !== 'denied') {
+            Notification.requestPermission().then(permission => {
+                if (permission === 'granted') new Notification(title, { body: body });
+            });
+        }
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            osc.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.5);
+        } catch(e) {}
+    }
+
     function logToConsole(message, type = 'info') {
         if (!consoleContainer) return;
         
@@ -601,85 +620,127 @@
         }
         
         uiContainer.innerHTML = `
-            <div id="botPageType" style="margin-bottom: 12px; font-size: 15px; font-weight: bold; color: #fff;">🌐 Initializing...</div>
-            
-            <!-- Controls -->
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 16px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; flex-wrap: wrap; border: 1px solid rgba(255,255,255,0.05);">
-                <div style="flex: 1; min-width: 80px;">
-                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Target Qty</label>
-                    <input type="number" id="botTargetQty" value="1" min="1" max="99" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s;" />
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;" id="botStatusDot"></div>
+                    <div style="font-size: 16px; font-weight: 800; background: linear-gradient(90deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 0.5px;">PokeBot UK</div>
                 </div>
-                <div style="flex: 1; min-width: 80px;">
-                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Min Delay (s)</label>
-                    <input type="number" id="botMinDelay" value="5" min="1" max="300" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s;" />
-                </div>
-                <div style="flex: 1; min-width: 80px;">
-                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Max Delay (s)</label>
-                    <input type="number" id="botMaxDelay" value="15" min="1" max="300" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s;" />
-                </div>
-            </div>
-            
-            <!-- Scheduling -->
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 16px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                <div style="flex: 1;">
-                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Schedule Start (Local Time)</label>
-                    <input type="datetime-local" id="botScheduleTime" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s; color-scheme: dark;" />
-                </div>
-                <button id="botScheduleBtn" style="padding: 10px 16px; cursor: pointer; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 13px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3); align-self: flex-end; transition: transform 0.1s, filter 0.2s;">⏳ Set</button>
-            </div>
-            
-            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                <button id="botStartBtn" style="flex: 1; padding: 10px; cursor: pointer; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); transition: transform 0.1s, filter 0.2s;">▶ START</button>
-                <button id="botStopBtn" style="flex: 1; padding: 10px; cursor: pointer; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: transform 0.1s, filter 0.2s;">⏹ STOP</button>
+                <div id="botPageType" style="font-size: 11px; font-weight: 600; color: #cbd5e1; background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 12px;">🌐 Init</div>
             </div>
 
-            <!-- Shipping Profile Settings -->
-            <details style="margin-bottom: 12px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                <summary style="cursor: pointer; font-weight: 600; color: #fbbf24; outline: none; user-select: none;">📦 Shipping Profile</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px;">
-                    <input type="text" id="p_fn" placeholder="First Name" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_ln" placeholder="Last Name" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_addr" placeholder="Street Address" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_apt" placeholder="Apt/Suite (Optional)" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_zip" placeholder="Zip Code" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_phone" placeholder="Phone Number" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="email" id="p_email" placeholder="Email" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                </div>
-            </details>
+            <!-- Tabs Navigation -->
+            <div style="display: flex; gap: 15px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <div class="bot-tab-btn" data-target="tab-dash" style="cursor: pointer; padding-bottom: 8px; font-size: 12px; font-weight: 600; color: #38bdf8; border-bottom: 2px solid #38bdf8; transition: 0.2s;">Dashboard</div>
+                <div class="bot-tab-btn" data-target="tab-target" style="cursor: pointer; padding-bottom: 8px; font-size: 12px; font-weight: 600; color: #94a3b8; border-bottom: none; transition: 0.2s;">Targets</div>
+                <div class="bot-tab-btn" data-target="tab-profile" style="cursor: pointer; padding-bottom: 8px; font-size: 12px; font-weight: 600; color: #94a3b8; border-bottom: none; transition: 0.2s;">Profile</div>
+                <div class="bot-tab-btn" data-target="tab-logs" style="cursor: pointer; padding-bottom: 8px; font-size: 12px; font-weight: 600; color: #94a3b8; border-bottom: none; transition: 0.2s;">Logs</div>
+            </div>
 
-            <!-- Payment Details Settings -->
-            <details open style="margin-bottom: 16px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                <summary style="cursor: pointer; font-weight: 600; color: #38bdf8; outline: none; user-select: none;">💳 Payment Details</summary>
-                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-                    <div>
-                        <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">CARD NUMBER:</div>
-                        <input type="text" id="p_card_num" placeholder="16-digit Card Number" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    </div>
-                    <div style="display: flex; gap: 8px;">
-                        <div style="flex: 1;">
-                            <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">MONTH:</div>
-                            <input type="text" id="p_exp_month" placeholder="MM (08)" maxlength="2" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                        </div>
-                        <div style="flex: 1;">
-                            <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">YEAR:</div>
-                            <input type="text" id="p_exp_year" placeholder="YYYY (2026)" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                        </div>
-                        <div style="flex: 1;">
-                            <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">CVV2:</div>
-                            <input type="text" id="p_cvv" placeholder="CVV2" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                        </div>
-                    </div>
-                    <button id="botSaveSettingsBtn" style="margin-top: 10px; padding: 10px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); transition: transform 0.1s, filter 0.2s;">💾 Save Profile & Card</button>
+            <!-- TAB 1: DASHBOARD -->
+            <div id="tab-dash" class="bot-tab-pane" style="display: block;">
+                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                    <button id="botStartBtn" style="flex: 1; padding: 12px; cursor: pointer; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); transition: transform 0.1s, filter 0.2s;">▶ START</button>
+                    <button id="botStopBtn" style="flex: 1; padding: 12px; cursor: pointer; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: transform 0.1s, filter 0.2s;">⏹ STOP</button>
                 </div>
-            </details>
-            
-            <!-- Terminal Log -->
-            <div style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 6px; letter-spacing: 1px; text-transform: uppercase;">System Activity</div>
-            <div id="botConsole" style="background: rgba(0,0,0,0.5); border-radius: 8px; padding: 12px; height: 180px; overflow-y: auto; font-family: 'Fira Code', 'Consolas', monospace; font-size: 12px; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);">
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
+                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                        <label style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase;">Min Delay (s)</label>
+                        <input type="number" id="botMinDelay" value="5" min="1" max="300" style="width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); outline: none;" />
+                    </div>
+                    <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                        <label style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase;">Max Delay (s)</label>
+                        <input type="number" id="botMaxDelay" value="15" min="1" max="300" style="width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); outline: none;" />
+                    </div>
+                </div>
+
+                <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); display: flex; gap: 10px; align-items: flex-end;">
+                    <div style="flex: 1;">
+                        <label style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase;">Schedule Start</label>
+                        <input type="datetime-local" id="botScheduleTime" style="width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; color-scheme: dark;" />
+                    </div>
+                    <button id="botScheduleBtn" style="padding: 9px 14px; cursor: pointer; background: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 6px; font-weight: 600; font-size: 12px; transition: 0.2s;">⏳ Set</button>
+                </div>
+            </div>
+
+            <!-- TAB 2: TARGETS -->
+            <div id="tab-target" class="bot-tab-pane" style="display: none;">
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 12px;">
+                    <label style="font-size: 11px; font-weight: 600; color: #a78bfa; margin-bottom: 6px; display: block;">Keywords / URLs (1 per line)</label>
+                    <textarea id="p_watchlist" rows="4" placeholder="ETB
+Charizard
+https://..." style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; resize: vertical; font-size: 12px;"></textarea>
+                    
+                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 12px; margin-bottom: 6px; display: block;">Allowed Categories</label>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #cbd5e1; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                        <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="cat_tcg" checked> TCG</label>
+                        <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="cat_plush" checked> Plush</label>
+                        <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="cat_video"> Games</label>
+                        <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="cat_accessories"> Gear</label>
+                    </div>
+                </div>
+                
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 6px; display: block;">Target Qty per Item</label>
+                    <input type="number" id="botTargetQty" value="1" min="1" max="99" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none;" />
+                </div>
+            </div>
+
+            <!-- TAB 3: PROFILE -->
+            <div id="tab-profile" class="bot-tab-pane" style="display: none; max-height: 350px; overflow-y: auto; padding-right: 4px;">
+                <div style="font-size: 11px; font-weight: 600; color: #fbbf24; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">SHIPPING INFO (UK)</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                    <input type="text" id="p_fn" placeholder="First Name" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px;" />
+                    <input type="text" id="p_ln" placeholder="Last Name" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px;" />
+                </div>
+                <input type="text" id="p_addr" placeholder="Street Address" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; margin-bottom: 8px;" />
+                <input type="text" id="p_apt" placeholder="Apt/Suite (Optional)" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; margin-bottom: 8px;" />
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                    <input type="text" id="p_county" placeholder="County (e.g. London)" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px;" />
+                    <input type="text" id="p_zip" placeholder="Postcode" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px;" />
+                </div>
+                <input type="text" id="p_phone" placeholder="Phone Number" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; margin-bottom: 8px;" />
+                <input type="email" id="p_email" placeholder="Email" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; margin-bottom: 16px;" />
+
+                <div style="font-size: 11px; font-weight: 600; color: #38bdf8; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">PAYMENT DETAILS</div>
+                <input type="text" id="p_card_num" placeholder="16-digit Card Number" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; margin-bottom: 8px; letter-spacing: 1px;" />
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                    <input type="text" id="p_exp_month" placeholder="MM" maxlength="2" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; text-align: center;" />
+                    <input type="text" id="p_exp_year" placeholder="YYYY" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; text-align: center;" />
+                    <input type="text" id="p_cvv" placeholder="CVV" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; text-align: center;" />
+                </div>
+                
+                <button id="botSaveSettingsBtn" style="width: 100%; padding: 12px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; transition: 0.2s;">💾 Save Everything</button>
+            </div>
+
+            <!-- TAB 4: LOGS -->
+            <div id="tab-logs" class="bot-tab-pane" style="display: none;">
+                <div id="botConsole" style="background: rgba(0,0,0,0.6); border-radius: 8px; padding: 12px; height: 260px; overflow-y: auto; font-family: 'Fira Code', 'Consolas', monospace; font-size: 11px; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);">
+                </div>
             </div>
         `;
 
+
         consoleContainer = document.getElementById('botConsole');
+        
+        // Tab switching logic
+        const tabs = document.querySelectorAll('.bot-tab-btn');
+        const panes = document.querySelectorAll('.bot-tab-pane');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => {
+                    t.style.borderBottom = 'none';
+                    t.style.color = '#94a3b8';
+                });
+                panes.forEach(p => p.style.display = 'none');
+                
+                tab.style.borderBottom = '2px solid #38bdf8';
+                tab.style.color = '#38bdf8';
+                document.getElementById(tab.dataset.target).style.display = 'block';
+            });
+        });
+
 
         // Attach event listeners
         const startBtn = document.getElementById('botStartBtn');
@@ -714,6 +775,19 @@
         if (p_addr) p_addr.value = localStorage.getItem('pc_bot_addr') || '';
         if (p_apt) p_apt.value = localStorage.getItem('pc_bot_apt') || '';
         if (p_zip) p_zip.value = localStorage.getItem('pc_bot_zip') || '';
+        const p_county = document.getElementById('p_county');
+        if (p_county) p_county.value = localStorage.getItem('pc_bot_county') || '';
+        const p_watchlist = document.getElementById('p_watchlist');
+        if (p_watchlist) p_watchlist.value = localStorage.getItem('pc_bot_watchlist') || '';
+        
+        ['tcg', 'plush', 'video', 'accessories'].forEach(cat => {
+            const cb = document.getElementById(`cat_${cat}`);
+            if (cb) {
+                const val = localStorage.getItem(`pc_bot_cat_${cat}`);
+                if (val !== null) cb.checked = val === 'true';
+            }
+        });
+
         if (p_phone) p_phone.value = localStorage.getItem('pc_bot_phone') || '';
         if (p_email) p_email.value = localStorage.getItem('pc_bot_email') || '';
 
@@ -747,6 +821,13 @@
                 localStorage.setItem('pc_bot_addr', p_addr.value.trim());
                 localStorage.setItem('pc_bot_apt', p_apt.value.trim());
                 localStorage.setItem('pc_bot_zip', p_zip.value.trim());
+                if(p_county) localStorage.setItem('pc_bot_county', p_county.value.trim());
+                if(p_watchlist) localStorage.setItem('pc_bot_watchlist', p_watchlist.value.trim());
+                ['tcg', 'plush', 'video', 'accessories'].forEach(cat => {
+                    const cb = document.getElementById(`cat_${cat}`);
+                    if (cb) localStorage.setItem(`pc_bot_cat_${cat}`, cb.checked);
+                });
+
                 localStorage.setItem('pc_bot_phone', p_phone.value.trim());
                 localStorage.setItem('pc_bot_email', p_email.value.trim());
 
@@ -858,6 +939,12 @@
     }
 
     function updateButtons() {
+        const statusDot = document.getElementById('botStatusDot');
+        if (statusDot) {
+            statusDot.style.background = isBotRunning ? '#10b981' : '#ef4444';
+            statusDot.style.boxShadow = isBotRunning ? '0 0 8px #10b981' : '0 0 8px #ef4444';
+        }
+
         const startBtn = document.getElementById('botStartBtn');
         const stopBtn = document.getElementById('botStopBtn');
         if (startBtn) {
@@ -887,6 +974,32 @@
         botActionInProgress = true;
         
         const targetQty = parseInt(document.getElementById('botTargetQty')?.value || "1", 10);
+        
+        // --- Pokémon Category Guard ---
+        const urlStr = window.location.href.toLowerCase();
+        const pageTitle = document.title.toLowerCase();
+        
+        const allowTcg = localStorage.getItem('pc_bot_cat_tcg') === 'true';
+        const allowPlush = localStorage.getItem('pc_bot_cat_plush') === 'true';
+        
+        let isAllowedCategory = true; // Default allow if strict mode isn't clear
+        
+        // If they only selected TCG, actively block plush/apparel
+        if (allowTcg && !allowPlush) {
+            if (urlStr.includes('/clothing') || urlStr.includes('/apparel') || urlStr.includes('/plush') || pageTitle.includes('plush') || pageTitle.includes('shirt')) {
+                isAllowedCategory = false;
+            }
+        }
+        
+        if (!isAllowedCategory) {
+            logToConsole("🛑 BLOCKED: Product category not allowed by settings.", "error");
+            isBotRunning = false;
+            localStorage.setItem('pc_bot_running', 'false');
+            updateButtons();
+            botActionInProgress = false;
+            return;
+        }
+
         
         const increaseBtn = document.getElementById('increaseQty');
         const decreaseBtn = document.getElementById('decreaseQty');
@@ -942,6 +1055,7 @@
 
                     if (isNowAvailable) {
                         logToConsole("🚨 RESTOCK DETECTED in background! Refreshing page...", "success");
+                        notifyUser("Restock Detected!", "Product is now in stock.");
                         window.location.reload();
                         return; // Stop execution, page is reloading
                     } else {
@@ -1182,6 +1296,10 @@
                 if (street) await simulateHumanType(street, p_addr);
 
                 const ext = document.getElementById('shipping-extendedAddress') || document.querySelector('input[name="extendedAddress"]');
+                const p_county_val = localStorage.getItem('pc_bot_county') || '';
+                const countyEl = document.getElementById('shipping-region') || document.querySelector('input[name="region"]') || document.querySelector('input[name="county"]');
+                if (countyEl && p_county_val) await simulateHumanType(countyEl, p_county_val);
+
                 if (ext && p_apt) await simulateHumanType(ext, p_apt);
 
                 const zip = document.getElementById('shipping-postalCode') || document.querySelector('input[name="postalCode"]');
@@ -1420,9 +1538,85 @@
     }
 
     // Main loop to continuously evaluate bot actions
+    
+    async function executeSearchPageBot() {
+        if (!isBotRunning || botActionInProgress) return;
+        botActionInProgress = true;
+        
+        logToConsole("🔍 Scanning search results...", "info");
+        await sleep(1500);
+        
+        // Find product cards
+        const products = Array.from(document.querySelectorAll('.product-card, [data-testid="product-card"]'));
+        let foundUrl = null;
+        
+        for (const p of products) {
+            const urlEl = p.querySelector('a');
+            const titleEl = p.querySelector('.product-title, h3, [data-testid="product-title"]');
+            const title = titleEl ? titleEl.innerText.toLowerCase() : "";
+            
+            // Check allowed categories based on title/url heuristics
+            const allowTcg = localStorage.getItem('pc_bot_cat_tcg') === 'true';
+            const allowPlush = localStorage.getItem('pc_bot_cat_plush') === 'true';
+            const allowVideo = localStorage.getItem('pc_bot_cat_video') === 'true';
+            const allowAcc = localStorage.getItem('pc_bot_cat_accessories') === 'true';
+            
+            let isAllowed = false;
+            if (allowTcg && (title.includes('etb') || title.includes('booster') || title.includes('box') || title.includes('deck') || title.includes('collection'))) isAllowed = true;
+            if (allowPlush && title.includes('plush')) isAllowed = true;
+            if (allowVideo && (title.includes('nintendo') || title.includes('game'))) isAllowed = true;
+            if (allowAcc && (title.includes('sleeve') || title.includes('binder') || title.includes('bag') || title.includes('pin'))) isAllowed = true;
+            
+            // If it's a TCG specific requirement
+            if (isAllowed || (allowTcg && !allowPlush && !allowVideo && !allowAcc)) {
+                // Check if in stock
+                const outOfStockEl = p.querySelector('.out-of-stock, [data-testid="out-of-stock-badge"]');
+                if (!outOfStockEl && urlEl && urlEl.href) {
+                    foundUrl = urlEl.href;
+                    break;
+                }
+            }
+        }
+        
+        if (foundUrl) {
+            logToConsole(`🎯 Found matching product in stock! Navigating...`, "success");
+            notifyUser("Product Found!", "Found product: " + foundUrl);
+            window.location.href = foundUrl;
+        } else {
+            logToConsole("No allowed products in stock. Refreshing soon...", "warning");
+            setTimeout(() => {
+                if (isBotRunning) window.location.reload();
+            }, gaussianRandom(5000, 1000, 3000, 8000));
+        }
+        botActionInProgress = false;
+    }
+
     async function botLoop() {
         if (isBotRunning) {
             const currentUrl = window.location.href;
+            
+            // Watchlist routing logic
+            const watchlistRaw = localStorage.getItem('pc_bot_watchlist') || '';
+            if (watchlistRaw.trim().length > 0 && (currentUrl.endsWith('.com/') || currentUrl.endsWith('.com/en-gb/'))) {
+                // If on homepage and bot started, navigate to first watchlist item
+                const items = watchlistRaw.split('\n').filter(i => i.trim().length > 0);
+                const first = items[0].trim();
+                botActionInProgress = true;
+                if (first.startsWith('http')) {
+                    logToConsole(`Navigating to watchlist URL: ${first}`, "info");
+                    window.location.href = first;
+                } else {
+                    logToConsole(`Searching for keyword: ${first}`, "info");
+                    window.location.href = `https://www.pokemoncenter.com/en-gb/search/${encodeURIComponent(first)}`;
+                }
+                return;
+            }
+            
+            if (currentUrl.includes('/search') || currentUrl.includes('/category') || currentUrl.includes('/new-releases')) {
+                await executeSearchPageBot();
+                return;
+            }
+
             if (currentUrl.includes('/product')) {
                 await executeProductPageBot();
             } else if (currentUrl.includes('/cart')) {
