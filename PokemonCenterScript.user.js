@@ -9,6 +9,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addValueChangeListener
+// @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
 (function() {
@@ -550,8 +551,60 @@
         } catch (e) {}
     }
 
+    function sendDiscordNotification(message) {
+        const webhookUrl = localStorage.getItem('pc_bot_discord_webhook') || '';
+        if (!webhookUrl) return;
+
+        if (typeof GM_xmlhttpRequest !== 'undefined') {
+            GM_xmlhttpRequest({
+                method: "POST",
+                url: webhookUrl,
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                data: JSON.stringify({
+                    content: message,
+                    username: "PokeBot UK",
+                    avatar_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Pok%C3%A9_Ball_icon.svg/1024px-Pok%C3%A9_Ball_icon.svg.png"
+                }),
+                onload: function(response) {
+                    if (response.status < 200 || response.status >= 300) {
+                        console.error("Discord error:", response.responseText);
+                    }
+                }
+            });
+        }
+    }
+
+    function sendTelegramNotification(message) {
+        const token = localStorage.getItem('pc_bot_tg_token') || '';
+        const chatId = localStorage.getItem('pc_bot_tg_chat') || '';
+        if (!token || !chatId) return;
+
+        const url = `https://api.telegram.org/bot${token}/sendMessage`;
+        if (typeof GM_xmlhttpRequest !== 'undefined') {
+            GM_xmlhttpRequest({
+                method: "POST",
+                url: url,
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                data: JSON.stringify({
+                    chat_id: chatId,
+                    text: message,
+                    parse_mode: "HTML"
+                }),
+                onload: function(response) {
+                    if (response.status < 200 || response.status >= 300) {
+                        console.error("Telegram error:", response.responseText);
+                    }
+                }
+            });
+        }
+    }
+
     // Function to append logs to our custom UI console
-    function notifyUser(title, body) {
+    function notifyUser(title, body, url = null) {
         if (Notification.permission === 'granted') {
             new Notification(title, { body: body });
         } else if (Notification.permission !== 'denied') {
@@ -568,6 +621,27 @@
             osc.start();
             osc.stop(ctx.currentTime + 0.5);
         } catch(e) {}
+        
+        // Send Webhooks
+        const tgEnabled = localStorage.getItem('pc_bot_tg_enabled') === 'true';
+        const discordEnabled = localStorage.getItem('pc_bot_discord_enabled') === 'true';
+        
+        let messageText = `🔔 <b>${title}</b>\n${body}`;
+        if (url) {
+            messageText += `\n\n🔗 <a href="${url}">${url}</a>`;
+        }
+
+        if (tgEnabled) {
+            sendTelegramNotification(messageText);
+        }
+        
+        if (discordEnabled) {
+            let discordMsg = `🔔 **${title}**\n${body}`;
+            if (url) {
+                discordMsg += `\n\n🔗 ${url}`;
+            }
+            sendDiscordNotification(discordMsg);
+        }
     }
 
     function logToConsole(message, type = 'info') {
@@ -630,11 +704,10 @@
             </div>
 
             <!-- Tabs Navigation -->
-            <div style="display: flex; gap: 15px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <div style="display: flex; gap: 15px; margin-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.1);">
                 <div class="bot-tab-btn" data-target="tab-dash" style="cursor: pointer; padding-bottom: 8px; font-size: 12px; font-weight: 600; color: #38bdf8; border-bottom: 2px solid #38bdf8; transition: 0.2s;">Dashboard</div>
                 <div class="bot-tab-btn" data-target="tab-target" style="cursor: pointer; padding-bottom: 8px; font-size: 12px; font-weight: 600; color: #94a3b8; border-bottom: none; transition: 0.2s;">Targets</div>
                 <div class="bot-tab-btn" data-target="tab-profile" style="cursor: pointer; padding-bottom: 8px; font-size: 12px; font-weight: 600; color: #94a3b8; border-bottom: none; transition: 0.2s;">Profile</div>
-                <div class="bot-tab-btn" data-target="tab-logs" style="cursor: pointer; padding-bottom: 8px; font-size: 12px; font-weight: 600; color: #94a3b8; border-bottom: none; transition: 0.2s;">Logs</div>
             </div>
 
             <!-- TAB 1: DASHBOARD -->
@@ -667,17 +740,12 @@
             <!-- TAB 2: TARGETS -->
             <div id="tab-target" class="bot-tab-pane" style="display: none;">
                 <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 12px;">
-                    <label style="font-size: 11px; font-weight: 600; color: #a78bfa; margin-bottom: 6px; display: block;">Keywords / URLs (1 per line)</label>
-                    <textarea id="p_watchlist" rows="4" placeholder="ETB
-Charizard
-https://..." style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; resize: vertical; font-size: 12px;"></textarea>
+                    <label style="font-size: 11px; font-weight: 600; color: #a78bfa; margin-bottom: 6px; display: block;">Search URL to Monitor</label>
+                    <input type="text" id="botSearchUrl" placeholder="https://www.pokemoncenter.com/en-gb/search/..." style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; margin-bottom: 12px;" />
                     
-                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-top: 12px; margin-bottom: 6px; display: block;">Allowed Categories</label>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #cbd5e1; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
-                        <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="cat_tcg" checked> TCG</label>
-                        <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="cat_plush" checked> Plush</label>
-                        <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="cat_video"> Games</label>
-                        <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="cat_accessories"> Gear</label>
+                    <div style="display: flex; gap: 8px; align-items: center; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                        <input type="checkbox" id="botAutoBuy" style="cursor: pointer;" checked>
+                        <label for="botAutoBuy" style="font-size: 12px; font-weight: 600; color: #10b981; cursor: pointer;">Auto Buy In-Stock Items</label>
                     </div>
                 </div>
                 
@@ -688,7 +756,7 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
             </div>
 
             <!-- TAB 3: PROFILE -->
-            <div id="tab-profile" class="bot-tab-pane" style="display: none; max-height: 350px; overflow-y: auto; padding-right: 4px;">
+            <div id="tab-profile" class="bot-tab-pane" style="display: none; max-height: 250px; overflow-y: auto; padding-right: 4px;">
                 <div style="font-size: 11px; font-weight: 600; color: #fbbf24; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">SHIPPING INFO (UK)</div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
                     <input type="text" id="p_fn" placeholder="First Name" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px;" />
@@ -711,16 +779,34 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
                     <input type="text" id="p_cvv" placeholder="CVV" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; text-align: center;" />
                 </div>
                 
+                <div style="font-size: 11px; font-weight: 600; color: #a855f7; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">NOTIFICATIONS (WEBHOOKS)</div>
+                <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+                    <input type="checkbox" id="p_tg_enabled" style="cursor: pointer;" />
+                    <label for="p_tg_enabled" style="font-size: 11px; color: #cbd5e1; cursor: pointer;">Enable Telegram</label>
+                </div>
+                <input type="text" id="p_tg_token" placeholder="Telegram Bot Token" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; margin-bottom: 8px;" />
+                <input type="text" id="p_tg_chat" placeholder="Telegram Chat ID" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; margin-bottom: 12px;" />
+                
+                <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+                    <input type="checkbox" id="p_discord_enabled" style="cursor: pointer;" />
+                    <label for="p_discord_enabled" style="font-size: 11px; color: #cbd5e1; cursor: pointer;">Enable Discord</label>
+                </div>
+                <input type="text" id="p_discord_webhook" placeholder="Discord Webhook URL" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none; font-size: 12px; margin-bottom: 12px;" />
+                <button id="botTestNotifBtn" style="width: 100%; padding: 8px; background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; transition: 0.2s; margin-bottom: 16px;">🔔 Test Notifications</button>
+
                 <button id="botSaveSettingsBtn" style="width: 100%; padding: 12px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; transition: 0.2s;">💾 Save Everything</button>
             </div>
 
-            <!-- TAB 4: LOGS -->
-            <div id="tab-logs" class="bot-tab-pane" style="display: none;">
-                <div id="botConsole" style="background: rgba(0,0,0,0.6); border-radius: 8px; padding: 12px; height: 260px; overflow-y: auto; font-family: 'Fira Code', 'Consolas', monospace; font-size: 11px; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);">
+            <!-- Persistent Live Console at Bottom of All Tabs -->
+            <div style="margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Live Logs</span>
+                    <span id="botStatsCounter" style="font-size: 10px; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.1); padding: 2px 6px; border-radius: 4px;">Ready</span>
+                </div>
+                <div id="botConsole" style="background: rgba(0,0,0,0.6); border-radius: 8px; padding: 10px; height: 160px; overflow-y: auto; font-family: 'Fira Code', 'Consolas', monospace; font-size: 11px; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);">
                 </div>
             </div>
         `;
-
 
         consoleContainer = document.getElementById('botConsole');
         
@@ -763,6 +849,13 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
         const p_exp_month = document.getElementById('p_exp_month');
         const p_exp_year = document.getElementById('p_exp_year');
         const p_cvv = document.getElementById('p_cvv');
+        
+        const p_tg_enabled = document.getElementById('p_tg_enabled');
+        const p_tg_token = document.getElementById('p_tg_token');
+        const p_tg_chat = document.getElementById('p_tg_chat');
+        const p_discord_enabled = document.getElementById('p_discord_enabled');
+        const p_discord_webhook = document.getElementById('p_discord_webhook');
+        const testNotifBtn = document.getElementById('botTestNotifBtn');
 
         const saveSettingsBtn = document.getElementById('botSaveSettingsBtn');
 
@@ -777,16 +870,11 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
         if (p_zip) p_zip.value = localStorage.getItem('pc_bot_zip') || '';
         const p_county = document.getElementById('p_county');
         if (p_county) p_county.value = localStorage.getItem('pc_bot_county') || '';
-        const p_watchlist = document.getElementById('p_watchlist');
-        if (p_watchlist) p_watchlist.value = localStorage.getItem('pc_bot_watchlist') || '';
         
-        ['tcg', 'plush', 'video', 'accessories'].forEach(cat => {
-            const cb = document.getElementById(`cat_${cat}`);
-            if (cb) {
-                const val = localStorage.getItem(`pc_bot_cat_${cat}`);
-                if (val !== null) cb.checked = val === 'true';
-            }
-        });
+        const botSearchUrl = document.getElementById('botSearchUrl');
+        const botAutoBuy = document.getElementById('botAutoBuy');
+        if (botSearchUrl) botSearchUrl.value = localStorage.getItem('pc_bot_search_url') || '';
+        if (botAutoBuy) botAutoBuy.checked = localStorage.getItem('pc_bot_auto_buy') !== 'false';
 
         if (p_phone) p_phone.value = localStorage.getItem('pc_bot_phone') || '';
         if (p_email) p_email.value = localStorage.getItem('pc_bot_email') || '';
@@ -795,6 +883,12 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
         if (p_exp_month) p_exp_month.value = localStorage.getItem('pc_bot_exp_month') || '08';
         if (p_exp_year) p_exp_year.value = localStorage.getItem('pc_bot_exp_year') || '2026';
         if (p_cvv) p_cvv.value = localStorage.getItem('pc_bot_cvv') || '';
+        
+        if (p_tg_enabled) p_tg_enabled.checked = localStorage.getItem('pc_bot_tg_enabled') === 'true';
+        if (p_tg_token) p_tg_token.value = localStorage.getItem('pc_bot_tg_token') || '';
+        if (p_tg_chat) p_tg_chat.value = localStorage.getItem('pc_bot_tg_chat') || '';
+        if (p_discord_enabled) p_discord_enabled.checked = localStorage.getItem('pc_bot_discord_enabled') === 'true';
+        if (p_discord_webhook) p_discord_webhook.value = localStorage.getItem('pc_bot_discord_webhook') || '';
 
         if (qtyInput) {
             qtyInput.addEventListener('change', (e) => {
@@ -822,11 +916,8 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
                 localStorage.setItem('pc_bot_apt', p_apt.value.trim());
                 localStorage.setItem('pc_bot_zip', p_zip.value.trim());
                 if(p_county) localStorage.setItem('pc_bot_county', p_county.value.trim());
-                if(p_watchlist) localStorage.setItem('pc_bot_watchlist', p_watchlist.value.trim());
-                ['tcg', 'plush', 'video', 'accessories'].forEach(cat => {
-                    const cb = document.getElementById(`cat_${cat}`);
-                    if (cb) localStorage.setItem(`pc_bot_cat_${cat}`, cb.checked);
-                });
+                if(botSearchUrl) localStorage.setItem('pc_bot_search_url', botSearchUrl.value.trim());
+                if(botAutoBuy) localStorage.setItem('pc_bot_auto_buy', botAutoBuy.checked);
 
                 localStorage.setItem('pc_bot_phone', p_phone.value.trim());
                 localStorage.setItem('pc_bot_email', p_email.value.trim());
@@ -841,6 +932,12 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
                 localStorage.setItem('pc_bot_exp_month', expMonth);
                 localStorage.setItem('pc_bot_exp_year', expYear);
                 localStorage.setItem('pc_bot_cvv', cvv);
+                
+                localStorage.setItem('pc_bot_tg_enabled', p_tg_enabled ? p_tg_enabled.checked : false);
+                localStorage.setItem('pc_bot_tg_token', p_tg_token ? p_tg_token.value.trim() : '');
+                localStorage.setItem('pc_bot_tg_chat', p_tg_chat ? p_tg_chat.value.trim() : '');
+                localStorage.setItem('pc_bot_discord_enabled', p_discord_enabled ? p_discord_enabled.checked : false);
+                localStorage.setItem('pc_bot_discord_webhook', p_discord_webhook ? p_discord_webhook.value.trim() : '');
 
                 try {
                     if (typeof GM_setValue !== 'undefined') {
@@ -853,16 +950,25 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
                 logToConsole("Settings & Card profile saved successfully.", "success");
             });
         }
+        
+        if (testNotifBtn) {
+            testNotifBtn.addEventListener('click', () => {
+                // Save first to ensure we use the latest input
+                localStorage.setItem('pc_bot_tg_enabled', p_tg_enabled ? p_tg_enabled.checked : false);
+                localStorage.setItem('pc_bot_tg_token', p_tg_token ? p_tg_token.value.trim() : '');
+                localStorage.setItem('pc_bot_tg_chat', p_tg_chat ? p_tg_chat.value.trim() : '');
+                localStorage.setItem('pc_bot_discord_enabled', p_discord_enabled ? p_discord_enabled.checked : false);
+                localStorage.setItem('pc_bot_discord_webhook', p_discord_webhook ? p_discord_webhook.value.trim() : '');
+                notifyUser("Test Notification", "This is a test message from PokeBot UK!", window.location.href);
+                logToConsole("Sent test notifications.", "info");
+            });
+        }
 
         if (startBtn) {
             startBtn.addEventListener('click', () => {
-                // Auto-save watchlist and categories before starting
-                const p_wl = document.getElementById('p_watchlist');
-                if(p_wl) localStorage.setItem('pc_bot_watchlist', p_wl.value.trim());
-                ['tcg', 'plush', 'video', 'accessories'].forEach(cat => {
-                    const cb = document.getElementById(`cat_${cat}`);
-                    if (cb) localStorage.setItem(`pc_bot_cat_${cat}`, cb.checked);
-                });
+                // Auto-save URL and Auto Buy
+                if(botSearchUrl) localStorage.setItem('pc_bot_search_url', botSearchUrl.value.trim());
+                if(botAutoBuy) localStorage.setItem('pc_bot_auto_buy', botAutoBuy.checked);
                 
                 if (!isBotRunning) {
                     isBotRunning = true;
@@ -1063,7 +1169,7 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
 
                     if (isNowAvailable) {
                         logToConsole("🚨 RESTOCK DETECTED in background! Refreshing page...", "success");
-                        notifyUser("Restock Detected!", "Product is now in stock.");
+                        notifyUser("Restock Detected!", "Product is now in stock.", window.location.href);
                         window.location.reload();
                         return; // Stop execution, page is reloading
                     } else {
@@ -1547,156 +1653,246 @@ https://..." style="width: 100%; box-sizing: border-box; padding: 8px; backgroun
 
     // Main loop to continuously evaluate bot actions
     
-    async function executeSearchPageBot() {
+    let knownProductsState = JSON.parse(sessionStorage.getItem('pc_bot_known_products') || '{}');
+
+    async function checkProductStockBackground(url) {
+        try {
+            // Use regular fetch — same-origin (pokemoncenter.com), no CORS issue, browser cookies included
+            const res = await fetch(url, { cache: 'no-store', credentials: 'include' });
+            if (!res.ok) return false;
+            const html = await res.text();
+            if (!html) return false;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+
+            // Use textContent (not innerText) — innerText doesn't work in parsed documents
+            let btn = doc.querySelector('button.add-to-cart-button--PZmQF');
+            if (!btn) {
+                const btns = Array.from(doc.querySelectorAll('button'));
+                btn = btns.find(b => {
+                    const t = (b.textContent || '').trim();
+                    return t.includes('Add to Cart') || t.includes('Unavailable');
+                });
+            }
+
+            if (btn) {
+                const btnText = (btn.textContent || '').trim();
+                const isUnavailable = btn.disabled ||
+                                      btn.classList.contains('disabled--vkECP') ||
+                                      btnText.includes('Unavailable') ||
+                                      btnText.includes('Out of Stock') ||
+                                      btnText.includes('Sold Out');
+                return !isUnavailable && btnText.includes('Add to Cart');
+            }
+            return false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function executeSearchMonitorBackground() {
         if (!isBotRunning || botActionInProgress) return;
         botActionInProgress = true;
 
-        logToConsole("Scanning search results for in-stock products...", "info");
-        await sleep(1500);
-
-        // STRATEGY: Find all product links by href pattern.
-        // This works regardless of hashed CSS class names.
-        const allProductLinks = Array.from(document.querySelectorAll(
-            'a[href*="/product/"], a[href*="/en-gb/product/"]'
-        ));
-
-        logToConsole(`Found ${allProductLinks.length} product links on page.`, "info");
-
-        if (allProductLinks.length === 0) {
-            logToConsole("No products found. Page may still be loading — retrying...", "warning");
-            await sleep(3000);
+        const searchUrl = localStorage.getItem('pc_bot_search_url') || '';
+        if (!searchUrl) {
             botActionInProgress = false;
             return;
         }
 
-        // Read allowed categories
-        const allowTcg   = localStorage.getItem('pc_bot_cat_tcg') !== 'false';
-        const allowPlush  = localStorage.getItem('pc_bot_cat_plush') === 'true';
-        const allowVideo  = localStorage.getItem('pc_bot_cat_video') === 'true';
-        const allowAcc    = localStorage.getItem('pc_bot_cat_accessories') === 'true';
+        try {
+            logToConsole("Fetching search results in background...", "info");
+            // Use regular fetch — same-origin (pokemoncenter.com), no CORS issue, full browser cookies included
+            const res = await fetch(searchUrl, { cache: 'no-store', credentials: 'include' });
+            if (!res.ok) {
+                logToConsole(`Search page fetch failed: HTTP ${res.status}`, "warning");
+                botActionInProgress = false;
+                return;
+            }
+            const html = await res.text();
+            if (!html) {
+                logToConsole("Search page returned empty body.", "warning");
+                botActionInProgress = false;
+                return;
+            }
+            
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
 
-        // Get keyword from URL or watchlist
-        const urlKeyword = decodeURIComponent(window.location.pathname.split('/search/')[1] || '').toLowerCase().trim();
-        const watchlistKeyword = (localStorage.getItem('pc_bot_watchlist') || '').split('\n')[0].trim().toLowerCase();
-
-        let foundUrl = null;
-        let foundTitle = '';
-        const seenHrefs = new Set();
-
-        for (const link of allProductLinks) {
-            const href = link.href;
-            if (!href || seenHrefs.has(href)) continue;
-            seenHrefs.add(href);
-
-            // Walk up the DOM to find the card container
-            let card = link;
-            for (let i = 0; i < 7; i++) {
-                if (!card.parentElement) break;
-                card = card.parentElement;
-                const rect = card.getBoundingClientRect();
-                if (rect.height > 100 && rect.width > 80) break;
+            // DEBUG: Log what we got to help diagnose selector issues
+            const allAnchors = doc.querySelectorAll('a');
+            const allJLD = doc.querySelectorAll('script[type="application/ld+json"]');
+            const allProductLinks = Array.from(doc.querySelectorAll('a[href*="/product/"]'));
+            logToConsole(`🔬 Debug: HTML=${html.length}b | Anchors=${allAnchors.length} | JLD=${allJLD.length} | /product/ links=${allProductLinks.length}`, "info");
+            if (allProductLinks.length === 0 && allAnchors.length > 0) {
+                // Log first few hrefs to understand the structure
+                const sample = Array.from(allAnchors).slice(0,3).map(a => a.getAttribute('href')).join(' | ');
+                logToConsole(`🔬 Sample hrefs: ${sample}`, "info");
             }
 
-            const cardText  = (card.innerText || '').toLowerCase();
-            const linkLabel = (link.innerText || link.getAttribute('aria-label') || link.title || '').toLowerCase();
-            const combined  = cardText + ' ' + linkLabel;
-
-            // STOCK CHECK: look for common "out of stock" phrases anywhere in the card text
-            const outOfStockPatterns = ['unavailable', 'out of stock', 'sold out', 'coming soon', 'notify me', 'pre-order'];
-            const isUnavailable = outOfStockPatterns.some(p => combined.includes(p));
-            if (isUnavailable) {
-                logToConsole(`Skipping OOS: ${linkLabel.substring(0,40) || href.split('/').pop()}`, "warning");
-                continue;
+            const allProductLinks2 = Array.from(doc.querySelectorAll('a[href*="/product/"], a[href*="/en-gb/product/"]'));
+            const uniqueLinks = [];
+            const seen = new Set();
+            for (const link of allProductLinks2) {
+                const path = link.getAttribute('href');
+                if (path && !seen.has(path)) {
+                    seen.add(path);
+                    uniqueLinks.push({ path: path, el: link });
+                }
             }
 
-            // CATEGORY FILTER
-            const isClothing = ['shirt', 'hoodie', 'clothing', 'apparel', 'hat', 'cap', 'socks', 'jersey', 'shorts'].some(w => combined.includes(w));
-            if (isClothing && !allowAcc) continue;
+            if (uniqueLinks.length === 0) {
+                logToConsole("No products found in background fetch. Retrying later...", "warning");
+            } else {
+                const autoBuy = localStorage.getItem('pc_bot_auto_buy') !== 'false';
+                let foundInStockUrl = null;
+                let foundInStockTitle = '';
 
-            let categoryMatch = false;
+                let inStockCount = 0;
+                let outOfStockCount = 0;
 
-            if (allowTcg) {
-                const tcgWords = ['booster', 'etb', 'elite trainer', 'pack', 'box', 'deck', 'collection', 'tin', 'bundle', 'display', 'tcg', 'trading card', ' card ', 'scarlet', 'violet', 'ex box', 'binder'];
-                if (tcgWords.some(w => combined.includes(w))) categoryMatch = true;
+                // Check up to top 36 discovered products (all of them)
+                const linksToCheck = uniqueLinks.slice(0, 36);
+                const totalFound = linksToCheck.length; 
+
+                for (const item of linksToCheck) {
+                    if (!isBotRunning) break;
+                    
+                    const href = item.path.startsWith('http') ? item.path : window.location.origin + item.path;
+                    const link = item.el;
+
+                    // Locate enclosing product card container
+                    const card = link.closest('div.product-box--g4Jmy, [class*="product-box"], div.product--feNDW, [class*="product--"]') ||
+                                 link.parentElement?.parentElement ||
+                                 link.parentElement ||
+                                 link;
+
+                    // Extract actual product title from product card heading or alt text
+                    const titleEl = card.querySelector('h1.product-title--lz7HX, [class*="product-title"], img[alt]');
+                    const title = (titleEl?.textContent || titleEl?.getAttribute('alt') || link.getAttribute('aria-label') || href.split('/').pop())
+                                  .trim().replace(/\s+/g, ' ').substring(0, 70);
+
+                    // Accurate OOS detection: Pokemon Center renders the SOLD OUT badge (.product-image-oos--Lae0t)
+                    // on out-of-stock products. If there is no SOLD OUT badge/text, the product is IN STOCK.
+                    const isSoldOut = !!card.querySelector('.product-image-oos--Lae0t, [class*="product-image-oos"]') ||
+                                      (card.textContent && card.textContent.toUpperCase().includes('SOLD OUT'));
+
+                    const isInStock = !isSoldOut;
+
+                    if (isInStock) {
+                        inStockCount++;
+                    } else {
+                        outOfStockCount++;
+                    }
+
+                    const wasKnown = href in knownProductsState;
+                    const wasInStock = wasKnown ? knownProductsState[href].inStock : false;
+
+                    knownProductsState[href] = { title, inStock: isInStock };
+
+                    if (isInStock) {
+                        if (!wasInStock) {
+                            // Restock or New Product that is in stock!
+                            logToConsole(`🚨 IN STOCK DETECTED: ${title}`, "success");
+                            notifyUser("PokeBot: Product In Stock!", title, href);
+                        }
+                        
+                        if (autoBuy && !foundInStockUrl) {
+                            foundInStockUrl = href;
+                            foundInStockTitle = title;
+                        }
+                    } else {
+                        if (!wasKnown) {
+                            // Discovered a new product, but it is out of stock — log only, no notification spam
+                            logToConsole(`ℹ️ New (OOS): ${title}`, "info");
+                        } else if (wasInStock && !isInStock) {
+                            // Was in stock before, now out of stock
+                            logToConsole(`⚠️ Back OOS: ${title}`, "warning");
+                        }
+                    }
+                }
+                
+                // Detailed summary log with counts
+                logToConsole(`📊 Scan: Total ${totalFound} | ✅ In Stock: ${inStockCount} | ❌ Out of Stock: ${outOfStockCount}`, inStockCount > 0 ? "success" : "info");
+                
+                const statsEl = document.getElementById('botStatsCounter');
+                if (statsEl) {
+                    statsEl.textContent = `${inStockCount} In-Stock / ${totalFound} Scanned`;
+                    statsEl.style.color = inStockCount > 0 ? '#10b981' : '#94a3b8';
+                }
+
+                sessionStorage.setItem('pc_bot_known_products', JSON.stringify(knownProductsState));
+
+                if (foundInStockUrl && autoBuy) {
+                    logToConsole(`🛒 AUTO BUY ON: Navigating to ${foundInStockTitle}`, "success");
+                    window.location.href = foundInStockUrl;
+                    return; // Leave botActionInProgress = true while navigating
+                }
             }
-            if (allowPlush && ['plush', 'stuffed', 'cuddly'].some(w => combined.includes(w))) categoryMatch = true;
-            if (allowVideo && ['nintendo', 'switch', 'video game', 'game boy'].some(w => combined.includes(w))) categoryMatch = true;
-            if (allowAcc && ['sleeve', 'binder', 'bag', 'pin', 'figure', 'statue', 'keychain', 'case'].some(w => combined.includes(w))) categoryMatch = true;
-
-            // Fallback: check if search keyword itself is in the card text
-            if (!categoryMatch && urlKeyword && combined.includes(urlKeyword)) categoryMatch = true;
-            if (!categoryMatch && watchlistKeyword && !watchlistKeyword.startsWith('http') && combined.includes(watchlistKeyword)) categoryMatch = true;
-
-            // Last resort: if no categories are explicitly set, allow anything
-            if (!categoryMatch && !allowTcg && !allowPlush && !allowVideo && !allowAcc) categoryMatch = true;
-
-            if (!categoryMatch) continue;
-
-            foundUrl = href;
-            foundTitle = (link.innerText || link.getAttribute('aria-label') || href.split('/').pop() || href).trim().substring(0, 70);
-            break;
+        } catch (e) {
+            logToConsole("Background check failed: " + e.message, "error");
         }
 
-        if (foundUrl) {
-            logToConsole(`IN STOCK FOUND: "${foundTitle}" — Navigating now!`, "success");
-            notifyUser("PokeBot: Product In Stock!", foundTitle);
-            window.location.href = foundUrl;
-        } else {
-            const minMs = parseFloat(document.getElementById('botMinDelay')?.value || "8") * 1000;
-            const maxMs = parseFloat(document.getElementById('botMaxDelay')?.value || "20") * 1000;
-            const waitMs = gaussianRandom(minMs, 1000, minMs * 0.8, maxMs);
-            logToConsole(`All ${allProductLinks.length} products unavailable. Refreshing in ${(waitMs/1000).toFixed(1)}s...`, "warning");
-            setTimeout(() => {
-                if (isBotRunning) window.location.reload();
-            }, waitMs);
-        }
-        botActionInProgress = false;
+        // Schedule next check without reloading the frontend page
+        const minMs = parseFloat(document.getElementById('botMinDelay')?.value || "5") * 1000;
+        const maxMs = parseFloat(document.getElementById('botMaxDelay')?.value || "15") * 1000;
+        const waitMs = minMs + Math.random() * (maxMs - minMs);
+        logToConsole(`Background check complete. Next scan in ${(waitMs/1000).toFixed(1)}s...`, "info");
+        
+        setTimeout(() => {
+            botActionInProgress = false; // Allow loop to run again
+        }, waitMs);
     }
 
     async function botLoop() {
         if (isBotRunning) {
             const currentUrl = window.location.href;
             
-            // Watchlist routing logic
-            const watchlistRaw = localStorage.getItem('pc_bot_watchlist') || '';
-            if (watchlistRaw.trim().length > 0) {
-                const items = watchlistRaw.split('\n').filter(i => i.trim().length > 0);
-                if (items.length > 0) {
-                    const first = items[0].trim();
-                    
-                    let isSearchingOrOnTarget = false;
-                    if (first.startsWith('http') && currentUrl === first) isSearchingOrOnTarget = true;
-                    if (!first.startsWith('http') && currentUrl.includes('/search')) isSearchingOrOnTarget = true;
-                    if (currentUrl.includes('/product') || currentUrl.includes('/cart') || currentUrl.includes('/checkout')) isSearchingOrOnTarget = true;
+            const searchUrl = localStorage.getItem('pc_bot_search_url') || '';
+            const autoBuy = localStorage.getItem('pc_bot_auto_buy') !== 'false';
 
-                    if (!isSearchingOrOnTarget) {
-                        botActionInProgress = true;
-                        if (first.startsWith('http')) {
-                            logToConsole(`Navigating to watchlist URL: ${first}`, "info");
-                            window.location.href = first;
-                        } else {
-                            logToConsole(`Searching for keyword: ${first}`, "info");
-                            window.location.href = `https://www.pokemoncenter.com/en-gb/search/${encodeURIComponent(first)}`;
-                        }
-                        return;
-                    }
-                }
-            }
+            const isBuyingProcess = currentUrl.includes('/product') || currentUrl.includes('/cart') || currentUrl.includes('/checkout');
             
-            if (currentUrl.includes('/search') || currentUrl.includes('/category') || currentUrl.includes('/new-releases')) {
-                await executeSearchPageBot();
+            // If we have a target search URL, and we aren't currently buying something
+            if (searchUrl && !isBuyingProcess) {
+                // Perform fully background search monitoring
+                await executeSearchMonitorBackground();
                 return;
             }
 
-            if (currentUrl.includes('/product')) {
-                await executeProductPageBot();
-            } else if (currentUrl.includes('/cart')) {
-                await executeCartPageBot();
-            } else if (currentUrl.includes('/checkout')) {
-                await executeCheckoutPageBot();
+            // If we are on a product page, cart, or checkout
+            if (isBuyingProcess) {
+                if (autoBuy) {
+                    if (currentUrl.includes('/product')) {
+                        await executeProductPageBot();
+                    } else if (currentUrl.includes('/cart')) {
+                        await executeCartPageBot();
+                    } else if (currentUrl.includes('/checkout')) {
+                        await executeCheckoutPageBot();
+                    }
+                } else {
+                    if (!botActionInProgress) {
+                        logToConsole("Auto Buy is OFF. Manual action required to checkout.", "warning");
+                        botActionInProgress = true; // Set to true so it doesn't spam this log
+                    }
+                }
             }
         }
     }
+
+    // Sniffer to intercept internal API calls and discover any hidden JSON search/inventory endpoints
+    try {
+        const _origFetch = window.fetch;
+        window.fetch = async function(...args) {
+            try {
+                const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+                if (url && (url.includes('/api/') || url.includes('graphql') || url.includes('bloomreach') || url.includes('constructor'))) {
+                    logToConsole(`🔍 Captured API: ${url.substring(0, 90)}`, "info");
+                }
+            } catch(e) {}
+            return _origFetch.apply(this, args);
+        };
+    } catch(e) {}
 
     // Initialize UI
     initUI();
